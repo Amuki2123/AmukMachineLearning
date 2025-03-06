@@ -1,30 +1,4 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import pickle
-import joblib
-import json
-import matplotlib.pyplot as plt
-from prophet import Prophet
-from neuralprophet import NeuralProphet
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from keras.models import model_from_json
-%matplotlib inline
-from prophet import Prophet
-from prophet.serialize import model_to_json, model_from_json
-from neuralprophet import NeuralProphet, set_log_level
-from sklearn.preprocessing import MinMaxScaler
-import statsmodels.api as sm
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.arima_model import ARIMAResults
-import pmdarima as pm
-from statsmodels.tsa.stattools import adfuller, kpss
-from statsmodels.tsa.stattools import acf
-from statsmodels.tsa.stattools import pacf
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.graphics.tsaplots import plot_predict
-
 # Title of the app
 st.title("Regional Malaria Cases Forecasting App")
 st.write("Forecast malaria cases for Juba, Yei, and Wau based on rainfall and temperature using various models.")
