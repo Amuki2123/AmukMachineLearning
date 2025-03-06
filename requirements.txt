@@ -2,3 +2,8 @@ streamlit
 numpy
 pandas
 scikit-learn
+prophet
+NeuralProphet
+ExponentialSmoothing
+matplotlib
+seaborn
