@@ -8,7 +8,6 @@ from prophet import Prophet
 from neuralprophet import NeuralProphet
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from keras.models import model_from_json
-%matplotlib inline
 from prophet import Prophet
 from prophet.serialize import model_to_json, model_from_json
 from neuralprophet import NeuralProphet, set_log_level
