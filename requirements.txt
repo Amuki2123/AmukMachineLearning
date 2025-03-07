@@ -1,10 +1,18 @@
-streamlit
-numpy>=1.21.0
-pandas>=1.3.0
-scikit-learn
-matplotlib
-seaborn
-prophet>=1.0.0
+streamlit>=1.0.0
+seaborn>=0.11.0
+pickle5  # For using pickle (add only if not built-in with Python)
+joblib>=1.0.0
+jsonlib>=1.6.1  # Handles JSON serialization and deserialization
+matplotlib>=3.4.0
+prophet>=1.0.0  # Remove if using fbprophet
+fbprophet>=0.7  # Remove if using prophet
 neuralprophet>=0.3.0
 statsmodels>=0.13.0
+keras>=2.6.0
+tensorflow>=2.6.0
+scikit-learn>=0.24.0
+pmdarima>=1.8.0
+numpy>=1.21.0
+pandas>=1.3.0
+
 
