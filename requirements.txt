@@ -1,9 +1,12 @@
-Flask
 numpy
 pandas
 prophet
-python-dateutil
-Flask-Cors
+NeuralProphet
+ExponentialSmoothing
+scikit-learn
+matplotlib
+seaborn
+streamlit
 
 
 
