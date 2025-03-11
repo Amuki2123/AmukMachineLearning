@@ -1,117 +1,68 @@
-import streamlit as st
-import seaborn as sns
-import pickle
-import joblib
-import json
-import matplotlib.pyplot as plt
+from flask import Flask, render_template, request, jsonify
+import pandas as pd
 from prophet import Prophet
-from neuralprophet import NeuralProphet
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from keras.models import model_from_json
-from fbprophet import Prophet
-from prophet.serialize import model_to_json, model_from_json
-from neuralprophet import NeuralProphet, set_log_level
-from sklearn.preprocessing import MinMaxScaler
-import statsmodels.api as sm
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.arima_model import ARIMAResults
-import pmdarima as pm
-from statsmodels.tsa.stattools import adfuller, kpss
-from statsmodels.tsa.stattools import acf
-from statsmodels.tsa.stattools import pacf
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.graphics.tsaplots import plot_predict
+from prophet.serialize import model_from_json
+from flask_cors import CORS
+import logging
 
-# Title of the app
-st.title("Regional Malaria Cases Forecasting Models")
-st.write("Forecast malaria cases for Juba, Yei, and Wau based on rainfall and temperature using various models.")
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+logging.basicConfig(level=logging.INFO)  # Enable logging for debugging
 
-# Upload dataset
-uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
-if uploaded_file:
-    data = pd.read_csv(uploaded_file)
-    st.write(data)
-
-    # Preprocess uploaded data
-    data['Date'] = pd.to_datetime(data['Date'])
-    data.set_index('Date', inplace=True)
-
-# Load pre-trained models
-models = {
-    'Juba': {
-        'ARIMA': pickle.load(open('juba_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('juba_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('juba_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('juba_es_model.pkl', 'rb'))
-    },
-    'Yei': {
-        'ARIMA': pickle.load(open('yei_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('yei_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('yei_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('yei_es_model.pkl', 'rb'))
-    },
-    'Wau': {
-        'ARIMA': pickle.load(open('wau_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('wau_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('wau_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('wau_es_model.pkl', 'rb'))
-    }
+# Load the pre-trained Prophet models for each region
+MODELS = {
+    'juba': model_from_json(open('juba_prophet_model.json', 'r').read()),
+    'yei': model_from_json(open('yei_prophet_model.json', 'r').read()),
+    'wau': model_from_json(open('wau_prophet_model.json', 'r').read())
 }
 
-# Select region and model
-region = st.selectbox("Select a region:", ['Juba', 'Yei', 'Wau'])
-model_type = st.selectbox("Select a model:", ['ARIMA', 'NeuralProphet', 'Prophet', 'Exponential Smoothing'])
-
-# Input daily rainfall and temperature
-daily_rainfall = st.number_input("Enter daily rainfall (mm):", min_value=0, max_value=200, value=10)
-daily_temp = st.number_input("Enter daily temperature (°C):", min_value=15, max_value=40, value=25)
-
-# Forecast malaria cases
-if st.button("Forecast Malaria Cases"):
+def forecast(model, data):
+    """
+    Perform forecasting using the given Prophet model and input data.
+    """
     try:
-        # Load the selected model
-        model = models[region][model_type]
+        # Validate required keys in the input data
+        required_keys = ['date', 'Temperature', 'periods']
+        if not all(key in data for key in required_keys):
+            raise ValueError("Input data must contain 'date', 'Temperature', and 'periods'.")
 
-        # Prepare future DataFrame for prediction
-        future_dates = pd.date_range('2023-01-01', periods=365)
-        future_df = pd.DataFrame({
-            'ds': future_dates,
-            'daily_rainfall': [daily_rainfall] * 365,
-            'daily_temp': [daily_temp] * 365
-        })
+        # Prepare the DataFrame for Prophet
+        df = pd.DataFrame([data]).rename(columns={'date': 'ds', 'Temperature': 'y'})
+        future = model.make_future_dataframe(periods=int(data['periods']), freq='M', include_history=False)
+        future['y'] = data['Temperature']  # Assuming temperature is applied uniformly
 
-        # Generate forecasts
-        if model_type == "NeuralProphet":
-            forecast = model.predict(future_df)
-        elif model_type == "Prophet":
-            forecast = model.predict(future_df)
-        elif model_type == "Exponential Smoothing":
-            forecast = model.forecast(365)
-            future_df['yhat'] = forecast
-        elif model_type == "ARIMA":
-            forecast = model.forecast(steps=365)
-            future_df['yhat'] = forecast
+        # Perform forecasting
+        forecast_result = model.predict(future)
+        result = forecast_result[['ds', 'yhat']].iloc[-1]  # Get the last forecasted value
 
-        # Calculate annual cases
-        annual_cases = future_df['yhat'].sum()
-        st.write(f"Forecasted annual malaria cases in {region}: {annual_cases:.2f}")
-
-        # Plot forecast
-        fig, ax = plt.subplots()
-        ax.plot(future_df['ds'], future_df['yhat'], label='Forecasted Cases')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Malaria Cases')
-        ax.set_title(f"Malaria Cases Forecast for {region} ({model_type} Model)")
-        ax.legend()
-        st.pyplot(fig)
-
+        return result.to_dict()  # Return as a dictionary for JSON serialization
     except Exception as e:
-        st.error(f"Error occurred during forecast: {e}")
+        logging.error(f"Forecasting error: {e}")
+        raise ValueError(f"Forecasting failed: {str(e)}")
 
-# Option to download forecast as CSV
-if 'future_df' in locals():
-    csv = future_df.to_csv(index=False)
-    st.download_button(label="Download Forecast as CSV",
-                       data=csv,
-                       file_name=f"{region}_{model_type}_forecast.csv",
-                       mime="text/csv")
+@app.route('/')
+def index():
+    """
+    Render the main HTML template for the application.
+    """
+    return render_template('index.html')
+
+@app.route('/predict/<region>', methods=['POST'])
+def predict(region):
+    """
+    Generalized route for predicting malaria cases in different regions.
+    """
+    region = region.lower()
+    model = MODELS.get(region)
+    if not model:
+        return jsonify({'status': 'error', 'message': f"Invalid region '{region}' provided."}), 400
+
+    try:
+        data = request.get_json()
+        result = forecast(model, data)
+        return jsonify({'status': 'success', 'region': region.capitalize(), 'result': result})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
