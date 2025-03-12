@@ -116,3 +116,7 @@ if 'future_df' in locals():
                        data=csv,
                        file_name=f"{region}_{model_type}_forecast.csv",
                        mime="text/csv")
+    # Include port handling for deployment
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8501))  # Default Streamlit port
+    st.run(port=port)
