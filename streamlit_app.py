@@ -1,15 +1,15 @@
+import asyncio
+import torch
 import streamlit as st
-import seaborn as sns
+import zipfile
 import pickle
-import joblib
 import json
 import os
+import pandas as pd
 import matplotlib.pyplot as plt
-from prophet import Prophet
-from neuralprophet import NeuralProphet
+from keras.models import model_from_json
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from keras.models import model_from_json
-from fbprophet import Prophet
 from prophet.serialize import model_to_json, model_from_json
 from neuralprophet import NeuralProphet, set_log_level
 from sklearn.preprocessing import MinMaxScaler
@@ -116,7 +116,4 @@ if 'future_df' in locals():
                        data=csv,
                        file_name=f"{region}_{model_type}_forecast.csv",
                        mime="text/csv")
-    # Include port handling for deployment
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8501))  # Default Streamlit port
-    st.run(port=port)
+
