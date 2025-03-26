@@ -153,14 +153,14 @@ with st.sidebar:
         st.session_state.run_forecast = True
 
 # Main Display
-if not os.path.exists("Malaria_Forecasting.zip"):
+if not os.path.exists("Malaria Forecasting.zip"):
     st.error("❌ Missing model file. Please upload 'Malaria_Forecasting.zip'")
     st.stop()
 
 if getattr(st.session_state, 'run_forecast', False):
     with st.spinner(f"Loading {model_type} model..."):
         model = load_regional_model(
-            "Malaria_Forecasting.zip",
+            "Malaria Forecasting.zip",
             region.lower(),
             model_type
         )
@@ -198,7 +198,7 @@ if getattr(st.session_state, 'run_forecast', False):
 # Debug Section
 with st.expander("⚙️ Model Information"):
     try:
-        with zipfile.ZipFile("Malaria_Forecasting.zip") as z:
+        with zipfile.ZipFile("Malaria Forecasting.zip") as z:
             st.write("Available models:", z.namelist())
     except:
         st.warning("Could not inspect ZIP file")
