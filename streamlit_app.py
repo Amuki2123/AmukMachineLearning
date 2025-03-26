@@ -29,6 +29,7 @@ from statsmodels.tsa.stattools import pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_predict
 
+
 # --- Compatibility Fixes ---
 try:
     # Fix for NeuralProphet AttributeDict error
