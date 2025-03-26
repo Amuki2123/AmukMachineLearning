@@ -5,6 +5,7 @@ import zipfile
 import pickle
 import json
 import os
+from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
 from keras.models import model_from_json
@@ -33,85 +34,96 @@ if uploaded_file:
     data = pd.read_csv(uploaded_file)
     st.write(data)
 
-    # Preprocess uploaded data
-    data['Date'] = pd.to_datetime(data['Date'])
-    data.set_index('Date', inplace=True)
-
-# Load pre-trained models
-models = {
-    'Juba': {
-        'ARIMA': pickle.load(open('juba_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('juba_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('juba_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('juba_es_model.pkl', 'rb'))
-    },
-    'Yei': {
-        'ARIMA': pickle.load(open('yei_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('yei_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('yei_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('yei_es_model.pkl', 'rb'))
-    },
-    'Wau': {
-        'ARIMA': pickle.load(open('wau_arima_model.pkl', 'rb')),
-        'NeuralProphet': pickle.load(open('wau_np_model.pkl', 'rb')),
-        'Prophet': Prophet().from_json(open('wau_prophet_model.json', 'r').read()),
-        'Exponential Smoothing': pickle.load(open('wau_es_model.pkl', 'rb'))
+def load_regional_model(zip_path: str, region: str, model_type: str) -> Optional[object]:
+    """
+    Load a region-specific model from a ZIP archive.
+    
+    Args:
+        zip_path: Path to the ZIP file (e.g., "Malaria_Forecasting.zip")
+        region: Target region (e.g., "juba", "yei", "wau")
+        model_type: Type of model (e.g., "arima", "prophet", "neural")
+    
+    Returns:
+        Loaded model object or None if failed
+    """
+    # Map model types to their file patterns
+    model_patterns = {
+        "arima": f"{region}_arima_model.pkl",
+        "prophet": f"{region}_prophet_model.json",
+        "neural": f"{region}_np_model.pkl"
     }
-}
-
-# Select region and model
-region = st.selectbox("Select a region:", ['Juba', 'Yei', 'Wau'])
-model_type = st.selectbox("Select a model:", ['ARIMA', 'NeuralProphet', 'Prophet', 'Exponential Smoothing'])
-
-# Input daily rainfall and temperature
-daily_rainfall = st.number_input("Enter daily rainfall (mm):", min_value=0, max_value=200, value=10)
-daily_temp = st.number_input("Enter daily temperature (°C):", min_value=15, max_value=40, value=25)
-
-# Forecast malaria cases
-if st.button("Forecast Malaria Cases"):
+    
     try:
-        # Load the selected model
-        model = models[region][model_type]
-
-        # Prepare future DataFrame for prediction
-        future_dates = pd.date_range('2023-01-01', periods=365)
-        future_df = pd.DataFrame({
-            'ds': future_dates,
-            'daily_rainfall': [daily_rainfall] * 365,
-            'daily_temp': [daily_temp] * 365
-        })
-
-        # Generate forecasts
-        if model_type == "NeuralProphet":
-            forecast = model.predict(future_df)
-        elif model_type == "Prophet":
-            forecast = model.predict(future_df)
-        elif model_type == "Exponential Smoothing":
-            forecast = model.forecast(365)
-            future_df['yhat'] = forecast
-        elif model_type == "ARIMA":
-            forecast = model.forecast(steps=365)
-            future_df['yhat'] = forecast
-
-        # Calculate annual cases
-        annual_cases = future_df['yhat'].sum()
-        st.write(f"Forecasted annual malaria cases in {region}: {annual_cases:.2f}")
-
-        # Plot forecast
-        fig, ax = plt.subplots()
-        ax.plot(future_df['ds'], future_df['yhat'], label='Forecasted Cases')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Malaria Cases')
-        ax.set_title(f"Malaria Cases Forecast for {region} ({model_type} Model)")
-        ax.legend()
-        st.pyplot(fig)
-
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Find matching file in ZIP
+            model_file = next(
+                (f for f in zip_ref.namelist() 
+                 if f.lower() == model_patterns[model_type].lower()),
+                None
+            )
+            
+            if not model_file:
+                available = [f for f in zip_ref.namelist() if region in f.lower()]
+                st.error(f"Model not found. Available {region} models: {available}")
+                return None
+            
+            # Extract to memory and load
+            with zip_ref.open(model_file) as f:
+                if model_file.endswith('.pkl'):
+                    return pickle.load(f)
+                elif model_file.endswith('.json'):
+                    from keras.models import model_from_json
+                    return model_from_json(f.read().decode('utf-8'))
+                
     except Exception as e:
-        st.error(f"Error occurred during forecast: {e}")
+        st.error(f"Error loading {region} {model_type} model: {str(e)}")
+        return None
 
-# Option to download forecast as CSV
-if 'future_df' in locals():
-    csv = future_df.to_csv(index=False)
+def make_forecast(model, region: str, steps: int = 365) -> pd.DataFrame:
+    """Generate forecasts from a loaded model."""
+    try:
+        if hasattr(model, 'forecast'):  # ARIMA-style models
+            forecast = model.forecast(steps=steps)
+            return pd.DataFrame({
+                'date': pd.date_range(start=pd.Timestamp.today(), periods=steps),
+                'cases': forecast
+            })
+        elif hasattr(model, 'predict'):  # Prophet-style models
+            future = pd.DataFrame({
+                'ds': pd.date_range(start=pd.Timestamp.today(), periods=steps)
+            })
+            return model.predict(future)
+    except Exception as e:
+        st.error(f"Forecast failed: {str(e)}")
+        return pd.DataFrame()
+
+# Streamlit UI
+st.title("Regional Malaria Forecast")
+
+# User inputs
+region = st.selectbox("Select Region", ["juba", "yei", "wau"])
+model_type = st.selectbox("Select Model Type", ["arima", "prophet", "neural"])
+forecast_days = st.slider("Forecast Days", 30, 365, 90)
+
+if st.button("Run Forecast"):
+    with st.spinner(f"Loading {region} {model_type} model..."):
+        model = load_regional_model(
+            zip_path="Malaria_Forecasting.zip",
+            region=region,
+            model_type=model_type
+        )
+    
+    if model:
+        st.success(f"✅ {model_type.upper()} model loaded for {region.capitalize()}!")
+        forecast = make_forecast(model, region, forecast_days)
+        
+        if not forecast.empty:
+            st.line_chart(forecast.set_index('date' if 'date' in forecast.columns else 'ds'))
+            st.download_button(
+                "Download Forecast",
+                data=forecast.to_csv(index=False),
+                file_name=f"{region}_{model_type}_forecast.csv"
+            )
     st.download_button(label="Download Forecast as CSV",
                        data=csv,
                        file_name=f"{region}_{model_type}_forecast.csv",
