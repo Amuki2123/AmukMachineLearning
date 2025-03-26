@@ -1,15 +1,17 @@
-import asyncio
-import torch
-import streamlit as st
+import os
 import zipfile
 import pickle
-import json
-import os
-from datetime import datetime, timedelta
-from typing import Optional
+import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from keras.models import model_from_json
+import zipfile
+import os
+from typing import Optional, Union 
+from datetime import datetime, timedelta
+from io import BytesIO
+import matplotlib.pyplot as plt
+from prophet import Prophet
+from neuralprophet import NeuralProphet
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from keras.models import model_from_json
 from prophet.serialize import model_to_json, model_from_json
@@ -25,36 +27,51 @@ from statsmodels.tsa.stattools import pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_predict
 
-# --- Configuration ---
+
+# --- App Configuration ---
 st.set_page_config(
     page_title="Malaria Forecasting System",
     page_icon="🦟",
     layout="wide"
 )
 
-# --- Model Loading ---
-def load_regional_model(zip_path: str, region: str, model_type: str) -> Optional[Union[ARIMA, Prophet, NeuralProphet]]:
-    """Load model from ZIP with enhanced error handling"""
+# --- Model Loading Function ---
+def load_regional_model(
+    zip_path: str, 
+    region: str, 
+    model_type: str
+) -> Optional[Union[ARIMA, Prophet, NeuralProphet]]:
+    """
+    Load a forecasting model from ZIP archive
+    Supports ARIMA, Prophet, and NeuralProphet models
+    """
     model_files = {
         "arima": f"{region}_arima_model.pkl",
-        "prophet": f"{region}_prophet_model.json",
+        "prophet": f"{region}_prophet_model.json", 
         "neural": f"{region}_np_model.pkl"
     }
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Case-insensitive search
+            # Find matching file (case-insensitive)
             target_file = model_files[model_type]
-            matched = next((f for f in zip_ref.namelist() if target_file.lower() in f.lower()), None)
+            matched = next(
+                (f for f in zip_ref.namelist() 
+                 if target_file.lower() in f.lower()),
+                None
+            )
             
             if not matched:
-                available = [f for f in zip_ref.namelist() if region.lower() in f.lower()]
+                available = [f for f in zip_ref.namelist() 
+                           if region.lower() in f.lower()]
                 st.error(f"Model not found. Available models: {available}")
                 return None
                 
+            # Load based on file type
             with zip_ref.open(matched) as f:
                 if matched.endswith('.pkl'):
                     model = pickle.load(f)
+                    # Validate NeuralProphet models
                     if model_type == "neural" and not hasattr(model, "predict"):
                         raise ValueError("Invalid NeuralProphet model")
                     return model
@@ -66,50 +83,56 @@ def load_regional_model(zip_path: str, region: str, model_type: str) -> Optional
         st.error(f"❌ Model loading failed: {str(e)}")
         return None
 
-# --- Forecasting ---
+# --- Forecasting Function ---
 def generate_forecast(
     model: Union[ARIMA, Prophet, NeuralProphet],
     days: int,
     temp: float,
     rainfall: float
-) -> pd.DataFrame:
-    """Generate forecast with environmental factors"""
+) -> Optional[pd.DataFrame]:
+    """Generate forecasts with environmental factors"""
     try:
-        dates = pd.date_range(datetime.today(), periods=days)
+        forecast_dates = pd.date_range(datetime.today(), periods=days)
         
-        # ARIMA Models
+        # Handle ARIMA models
         if isinstance(model, ARIMA):
-            forecast = model.forecast(steps=int(days))
+            forecast_values = model.forecast(steps=int(days))
             return pd.DataFrame({
-                'date': dates,
-                'cases': forecast,
-                'temperature': temp,
-                'rainfall': rainfall
+                'date': forecast_dates,
+                'cases': forecast_values,
+                'temperature': [temp] * days,
+                'rainfall': [rainfall] * days
             })
         
-        # Prophet Models
+        # Handle Prophet models
         elif isinstance(model, Prophet):
             future = model.make_future_dataframe(periods=days)
             future['temp'] = temp
             future['rain'] = rainfall
             forecast = model.predict(future)
-            return forecast[['ds', 'yhat']].rename(columns={'ds': 'date', 'yhat': 'cases'})
+            return forecast[['ds', 'yhat']].rename(
+                columns={'ds': 'date', 'yhat': 'cases'}
+            )
         
-        # NeuralProphet Models
-        elif hasattr(model, "predict"):  # NeuralProphet check
-            future = model.make_future_dataframe(model, periods=days)
+        # Handle NeuralProphet models
+        elif hasattr(model, "make_future_dataframe"):
+            future = model.make_future_dataframe(periods=days)
             future['temp'] = temp
             future['rain'] = rainfall
             forecast = model.predict(future)
-            return forecast[['ds', 'yhat']].rename(columns={'ds': 'date', 'yhat': 'cases'})
+            return forecast[['ds', 'yhat']].rename(
+                columns={'ds': 'date', 'yhat': 'cases'}
+            )
+        else:
+            raise ValueError(f"Unsupported model type: {type(model)}")
     
     except Exception as e:
         st.error(f"""Forecast failed. Possible causes:
         1. Invalid model parameters
         2. Missing required data
         3. Model type mismatch
-        Error: {str(e)}""")
-        return pd.DataFrame()
+        Error details: {str(e)}""")
+        return None
 
 # --- Streamlit UI ---
 st.title("🦟 Regional Malaria Forecasting")
@@ -128,34 +151,38 @@ with st.sidebar:
     if st.button("Generate Forecast", type="primary"):
         st.session_state.run_forecast = True
 
-# Main Display
-if not os.path.exists("Malaria_Forecasting.zip"):
+# Main Display Area
+if not os.path.exists("Malaria Forecasting.zip"):
     st.error("❌ Missing model file. Please upload 'Malaria_Forecasting.zip'")
     st.stop()
 
 if getattr(st.session_state, 'run_forecast', False):
     with st.spinner(f"Loading {model_type} model..."):
         model = load_regional_model(
-            "Malaria_Forecasting.zip",
+            "Malaria Forecasting.zip",
             region.lower(),
             model_type
         )
     
     if model:
-        st.success(f"✅ {model_type.upper()} model loaded!")
+        st.success(f"✅ {model_type.upper()} model loaded successfully!")
         
         with st.spinner("Generating forecast..."):
             forecast = generate_forecast(model, days, temp, rain)
         
-        if not forecast.empty:
+        # Safe check for valid forecast
+        if forecast is not None and not forecast.empty:
             # Visualization
             st.subheader(f"{region} {model_type.upper()} Forecast")
             fig, ax = plt.subplots(figsize=(10, 5))
             ax.plot(forecast['date'], forecast['cases'], 'b-', label='Cases')
-            ax.set_title(f"Predicted Cases | Temp: {temp}°C, Rain: {rain}mm")
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Cases")
-            ax.grid(True)
+            ax.set_title(
+                f"Predicted Cases | Temp: {temp}°C, Rain: {rain}mm",
+                pad=20
+            )
+            ax.set_xlabel("Date", labelpad=10)
+            ax.set_ylabel("Cases", labelpad=10)
+            ax.grid(True, alpha=0.3)
             st.pyplot(fig)
             
             # Data Export
@@ -166,14 +193,17 @@ if getattr(st.session_state, 'run_forecast', False):
                 file_name=f"{region}_{model_type}_forecast.csv",
                 mime="text/csv"
             )
+        elif forecast is None:
+            st.error("❌ Forecast generation failed (returned None)")
+        else:
+            st.error("❌ Forecast generated empty results")
 
 # Debug Section
 with st.expander("⚙️ Model Information"):
     if 'model' in locals():
-        st.write("Model Type:", type(model))
+        st.write(f"Loaded Model Type: {type(model).__name__}")
     try:
-        with zipfile.ZipFile("Malaria_Forecasting.zip") as z:
+        with zipfile.ZipFile("Malaria Forecasting.zip") as z:
             st.write("Available Models:", z.namelist())
-    except:
-        st.warning("Could not inspect ZIP file")
-
+    except Exception as e:
+        st.warning(f"Could not inspect ZIP file: {str(e)}")
