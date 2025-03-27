@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
 from neuralprophet import NeuralProphet
@@ -146,13 +146,16 @@ def forecast_prophet(model, days, temp, rain):
 
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with regressors"""
-    # Create future dataframe with proper structure
-    future = model.make_future_dataframe(df=pd.DataFrame({'ds': pd.date_range(datetime.today(), periods=days)}), 
-                                        periods=days)
-    future['Temperature'] = temp
-    future['Rainfall'] = rain
-    forecast = model.predict(future)
-    return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
+    # Create future dataframe with dates
+    future_dates = pd.DataFrame({'ds': pd.date_range(datetime.today(), periods=days)})
+    
+    # Add regressor values
+    future_dates['Temperature'] = temp
+    future_dates['Rainfall'] = rain
+    
+    # Generate forecast
+    forecast = model.predict(future_dates)
+    return forecast['ds'], forecast['yhat1']
 
 def forecast_expsmooth(model, days, temp, rain):
     """Generate Exponential Smoothing forecast"""
@@ -162,7 +165,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟 Malaria Forecasting with Environmental Factors🦟")
+    st.title("🦟 Malaria Cases Forecasting with Environmental Factors")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -207,7 +210,10 @@ def main():
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
                 # Correct model filename pattern
-                model_file = f"{region.lower()}_{model_type.lower().replace(' ', '')}_model"
+                if model_type == "Exponential Smoothing":
+                    model_file = f"{region.lower()}_expsmooth_model.pkl"
+                else:
+                    model_file = f"{region.lower()}_{model_type.lower().replace(' ', '')}_model"
                 
                 if model_type == "Prophet":
                     model_file += ".json"
