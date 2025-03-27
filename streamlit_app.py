@@ -66,10 +66,9 @@ def train_neuralprophet(data):
     return model
 
 def train_exponential_smoothing(data):
-    """Train Exponential Smoothing with environmental factors"""
+    """Train Exponential Smoothing (without exogenous variables)"""
     return ExponentialSmoothing(
         data['Cases'],
-        exogenous=data[['Temperature', 'Rainfall']],
         trend='add',
         seasonal='add',
         seasonal_periods=365
@@ -150,12 +149,8 @@ def forecast_neuralprophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_expsmooth(model, days, temp, rain):
-    """Generate Exponential Smoothing forecast"""
-    future_exog = pd.DataFrame({
-        'Temperature': [temp] * days,
-        'Rainfall': [rain] * days
-    })
-    forecast = model.forecast(days, exogenous=future_exog)
+    """Generate Exponential Smoothing forecast (without exogenous variables)"""
+    forecast = model.forecast(days)
     return pd.date_range(datetime.today(), periods=days), forecast
 
 def handle_file_upload():
