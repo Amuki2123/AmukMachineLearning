@@ -100,7 +100,7 @@ def train_all_models():
             
             # Exponential Smoothing
             with st.spinner(f"Training Exponential Smoothing for {region}"):
-                models[f"{region.lower()}_es.pkl"] = train_exponential_smoothing(data)
+                models[f"{region.lower()}_es_model.pkl"] = train_exponential_smoothing(data)
         
         # Save models to ZIP
         with zipfile.ZipFile("Malaria Forecasting.zip", 'w') as zipf:
@@ -166,7 +166,7 @@ def main():
     with col1:
         region = st.selectbox("Select Region", ["Juba", "Yei", "Wau"])
         model_type = st.selectbox("Select Model", 
-            ["ARIMAX", "Prophet", "NeuralProphet", "Exponential Smoothing"])
+            ["ARIMA", "Prophet", "NeuralProphet", "Exponential Smoothing"])
     
     with col2:
         temp = st.slider("Temperature (°C)", 15.0, 40.0, 25.0, 0.5)
@@ -200,14 +200,14 @@ def main():
             
             with st.spinner("Generating forecast..."):
                 try:
-                    if model_type == "ARIMAX":
+                    if model_type == "ARIMA":
                         dates, values = forecast_arima(model, days, temp, rain)
                     elif model_type == "Prophet":
                         dates, values = forecast_prophet(model, days, temp, rain)
                     elif model_type == "NeuralProphet":
                         dates, values = forecast_neuralprophet(model, days, temp, rain)
                     else:
-                        dates, values = forecast_expsmooth(model, days, temp, rain)
+                        dates, values = forecast_es(model, days, temp, rain)
                     
                     forecast_df = pd.DataFrame({
                         'Date': dates,
