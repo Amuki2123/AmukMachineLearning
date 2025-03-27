@@ -57,12 +57,30 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data):
-    """Train NeuralProphet with external regressors"""
+    """Train NeuralProphet with stability fixes"""
     df = data.reset_index().rename(columns={'Date': 'ds', 'Cases': 'y'})
-    model = NeuralProphet()
+    
+    model = NeuralProphet(
+        n_forecasts=1,
+        n_lags=7,  # Lookback window
+        yearly_seasonality=True,
+        weekly_seasonality=True,
+        daily_seasonality=False,
+        epochs=100,
+        batch_size=32,
+        trainer_config={
+            'accelerator': 'auto',
+            'enable_progress_bar': False
+        }
+    )
+    
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
-    model.fit(df, freq='D')
+    
+    # Train with validation split
+    train_df, val_df = model.split_df(df, freq='D', valid_p=0.2)
+    metrics = model.fit(train_df, validation_df=val_df, freq='D')
+    
     return model
 
 def train_exponential_smoothing(data):
@@ -145,13 +163,23 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Generate NeuralProphet forecast with regressors"""
-    # Create future dataframe with proper structure including dummy 'y' values
-    future = pd.DataFrame({
-        'ds': pd.date_range(datetime.today(), periods=days),
-        'y': [np.nan] * days,  # Include 'y' column with NaN values
-        'Temperature': [temp] * days,
-        'Rainfall': [rain] * days
+    """Robust NeuralProphet forecasting"""
+    try:
+        # Create future dataframe with proper regressors
+        future = model.make_future_dataframe(
+            df=pd.DataFrame({'ds': pd.date_range(datetime.today(), periods=days)}),
+            regressors_df=pd.DataFrame({
+                'Temperature': [temp]*days,
+                'Rainfall': [rain]*days
+            }),
+            periods=days
+        )
+        forecast = model.predict(future)
+        return forecast['ds'], forecast['yhat1']
+    except Exception as e:
+        st.error(f"NeuralProphet prediction error: {str(e)}")
+        # Return conservative fallback forecast
+        return pd.date_range(datetime.today(), periods=days), [model.last_value]*days
     })
     
     # Generate forecast
