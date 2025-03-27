@@ -146,12 +146,15 @@ def forecast_prophet(model, days, temp, rain):
 
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with regressors"""
-    # Create future dataframe with proper structure
+    # Create future dataframe with proper structure including dummy 'y' values
     future = pd.DataFrame({
         'ds': pd.date_range(datetime.today(), periods=days),
+        'y': [np.nan] * days,  # Include 'y' column with NaN values
         'Temperature': [temp] * days,
         'Rainfall': [rain] * days
     })
+    
+    # Generate forecast
     forecast = model.predict(future)
     return forecast['ds'], forecast['yhat1']  # NeuralProphet uses 'yhat1' for predictions
 
