@@ -62,25 +62,17 @@ def train_neuralprophet(data):
     
     model = NeuralProphet(
         n_forecasts=1,
-        n_lags=7,  # Lookback window
-        yearly_seasonality=True,
-        weekly_seasonality=True,
+        n_lags=0,  # Changed from 7 to 0 for simplicity
+        yearly_seasonality=False,
+        weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=100,
-        batch_size=32,
-        trainer_config={
-            'accelerator': 'auto',
-            'enable_progress_bar': True
-        }
+        epochs=50,  # Reduced from 100
+        batch_size=16,
     )
     
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
-    
-    # Train with validation split
-    train_df, val_df = model.split_df(df, freq='D', valid_p=0.2)
-    metrics = model.fit(train_df, validation_df=val_df, freq='D')
-    
+    metrics = model.fit(df, freq='D')
     return model
 
 def train_exponential_smoothing(data):
@@ -89,14 +81,13 @@ def train_exponential_smoothing(data):
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
-            seasonal='add',
-            seasonal_periods=min(365, len(data)//2)
+            seasonal=None,  # Removed seasonal for stability
         ).fit()
-    except ValueError:
+    except Exception as e:
+        st.warning(f"Using simpler Exponential Smoothing: {str(e)}")
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
-            seasonal=None
         ).fit()
 
 # --- Model Training Interface ---
@@ -165,25 +156,16 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Robust NeuralProphet forecasting"""
     try:
-        # Create future dataframe with proper regressors
-        future = model.make_future_dataframe(
-            df=pd.DataFrame({'ds': pd.date_range(datetime.today(), periods=days)}),
-            regressors_df=pd.DataFrame({
-                'Temperature': [temp]*days,
-                'Rainfall': [rain]*days
-            }),
-            periods=days
-        )
+        future = pd.DataFrame({
+            'ds': pd.date_range(datetime.today(), periods=days),
+            'Temperature': [temp] * days,
+            'Rainfall': [rain] * days
+        })
         forecast = model.predict(future)
         return forecast['ds'], forecast['yhat1']
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
-        # Return conservative fallback forecast
-        return pd.date_range(datetime.today(), periods=days), [model.last_value]*days
-    
-    # Generate forecast
-    forecast = model.predict(future)
-    return forecast['ds'], forecast['yhat1']  # NeuralProphet uses 'yhat1' for predictions
+        return pd.date_range(datetime.today(), periods=days), [0]*days
 
 def forecast_expsmooth(model, days, temp, rain):
     """Generate Exponential Smoothing forecast"""
@@ -239,16 +221,16 @@ def main():
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
                 # Correct model filename pattern
                 if model_type == "Exponential Smoothing":
-                    model_file = f"{region.lower()}_expsmooth_model"
+                    model_file = f"{region.lower()}_expsmooth_model.pkl"
+                elif model_type == "Prophet":
+                    model_file = f"{region.lower()}_prophet_model.json"
                 else:
-                    model_file = f"{region.lower()}_{model_type.lower().replace(' ', '')}_model"
+                    model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
                 
                 if model_type == "Prophet":
-                    model_file += ".json"
                     with zipf.open(model_file) as f:
                         model = model_from_json(f.read().decode('utf-8'))
                 else:
-                    model_file += ".pkl"
                     with zipf.open(model_file) as f:
                         model = pickle.load(f)
             
