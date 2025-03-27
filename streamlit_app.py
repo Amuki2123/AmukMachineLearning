@@ -66,25 +66,25 @@ def train_neuralprophet(data):
     return model
 
 def train_exponential_smoothing(data):
-    """Train Exponential Smoothing with automatic seasonal period adjustment"""
-    # Calculate available seasonal periods
-    days_of_data = (data.index[-1] - data.index[0]).days
-    seasonal_periods = min(365, days_of_data//2)  # Use half the available days or 365
-    
-    # Ensure we have at least 2 periods worth of data
-    if days_of_data < seasonal_periods * 2:
+    """Train Exponential Smoothing with robust seasonal handling"""
+    try:
+        # Try with seasonality first (for datasets with sufficient length)
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
-            seasonal=None  # Disable seasonal component if insufficient data
+            seasonal='add',
+            seasonal_periods=min(365, len(data)//2)  # Use smaller seasonal period if needed
         ).fit()
-    
-    return ExponentialSmoothing(
-        data['Cases'],
-        trend='add',
-        seasonal='add',
-        seasonal_periods=seasonal_periods
-    ).fit()
+    except ValueError as e:
+        if "initial seasonals" in str(e):
+            # Fall back to non-seasonal model if seasonal fitting fails
+            st.warning(f"Using non-seasonal Exponential Smoothing for {region} (insufficient seasonal data)")
+            return ExponentialSmoothing(
+                data['Cases'],
+                trend='add',
+                seasonal=None
+            ).fit()
+        raise  # Re-raise other errors
 
 # --- Model Training Interface ---
 def train_all_models():
@@ -105,17 +105,14 @@ def train_all_models():
             status_text.text(f"🚀 Training models for {region} ({i}/{total_regions})")
             data = prepare_region_data(df, region)
             
-            # Update progress
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
-            # Train models
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             models[f"{region.lower()}_np_model.pkl"] = train_neuralprophet(data)
             models[f"{region.lower()}_es_model.pkl"] = train_exponential_smoothing(data)
         
-        # Save models
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
                 if name.endswith('.pkl'):
@@ -133,6 +130,8 @@ def train_all_models():
         st.error(f"Model training failed: {str(e)}")
     finally:
         progress_bar.empty()
+
+# --- [Rest of your original code remains unchanged] ---
 
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
