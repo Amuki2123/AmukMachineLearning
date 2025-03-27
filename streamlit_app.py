@@ -208,65 +208,64 @@ def main():
         days = st.slider("Forecast Days", 7, 365, 30, 1)
     
     if st.button("Generate Forecast", type="primary"):
-        if not os.path.exists(MODEL_ZIP):
-            st.error("Please train models first!")
-            return
-        
-        try:
-            with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                model_file = f"{region.lower()}_{model_type.lower().replace(' ', '_')}"
-                if model_type == "Prophet":
-                    model_file += ".json"
-                    with zipf.open(model_file) as f:
-                        model = model_from_json(f.read().decode('utf-8'))
-                else:
-                    model_file += ".pkl"
-                    with zipf.open(model_file) as f:
-                        model = pickle.load(f)
+    if not os.path.exists(MODEL_ZIP):
+        st.error("Please train models first!")
+        return
+    
+    try:
+        with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
+            # Corrected filename pattern to match what was saved during training
+            model_file = f"{region.lower()}_{model_type.lower().replace(' ', '')}_model"
             
-            st.success(f"{model_type} model loaded for {region}!")
-            
-            with st.spinner("Generating forecast..."):
-                if model_type == "ARIMA":
-                    dates, values = forecast_arima(model, days, temp, rain)
-                elif model_type == "Prophet":
-                    dates, values = forecast_prophet(model, days, temp, rain)
-                elif model_type == "NeuralProphet":
-                    dates, values = forecast_neuralprophet(model, days, temp, rain)
-                else:
-                    dates, values = forecast_expsmooth(model, days, temp, rain)
-                
-                forecast_df = pd.DataFrame({
-                    'Date': dates,
-                    'Cases': values.round().astype(int),
-                    'Temperature': temp,
-                    'Rainfall': rain
-                })
-                
-                # Visualization with matplotlib
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
-                ax.set_title(
-                    f"{region} {model_type} Forecast\n"
-                    f"Temperature: {temp}°C, Rainfall: {rain}mm",
-                    pad=20
-                )
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Cases")
-                ax.grid(True, alpha=0.3)
-                st.pyplot(fig)
-                
-                # Data Export
-                csv = forecast_df.to_csv(index=False)
-                st.download_button(
-                    "📥 Download Forecast",
-                    data=csv,
-                    file_name=f"{region}_forecast.csv",
-                    mime="text/csv"
-                )
+            if model_type == "Prophet":
+                model_file += ".json"
+                with zipf.open(model_file) as f:
+                    model = model_from_json(f.read().decode('utf-8'))
+            else:
+                model_file += ".pkl"
+                with zipf.open(model_file) as f:
+                    model = pickle.load(f)
         
-        except Exception as e:
-            st.error(f"Forecast failed: {str(e)}")
-
-if __name__ == "__main__":
-    main()
+        st.success(f"{model_type} model loaded for {region}!")
+        
+        with st.spinner("Generating forecast..."):
+            if model_type == "ARIMA":
+                dates, values = forecast_arima(model, days, temp, rain)
+            elif model_type == "Prophet":
+                dates, values = forecast_prophet(model, days, temp, rain)
+            elif model_type == "NeuralProphet":
+                dates, values = forecast_neuralprophet(model, days, temp, rain)
+            else:
+                dates, values = forecast_expsmooth(model, days, temp, rain)
+            
+            forecast_df = pd.DataFrame({
+                'Date': dates,
+                'Cases': values.round().astype(int),
+                'Temperature': temp,
+                'Rainfall': rain
+            })
+            
+            # Visualization
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
+            ax.set_title(
+                f"{region} {model_type} Forecast\n"
+                f"Temperature: {temp}°C, Rainfall: {rain}mm",
+                pad=20
+            )
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Cases")
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+            
+            # Data Export
+            csv = forecast_df.to_csv(index=False)
+            st.download_button(
+                "📥 Download Forecast",
+                data=csv,
+                file_name=f"{region}_forecast.csv",
+                mime="text/csv"
+            )
+    
+    except Exception as e:
+        st.error(f"Forecast failed: {str(e)}")
