@@ -68,7 +68,6 @@ def train_neuralprophet(data):
 def train_exponential_smoothing(data):
     """Train Exponential Smoothing with robust seasonal handling"""
     try:
-        # Try with seasonality first
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
@@ -76,7 +75,6 @@ def train_exponential_smoothing(data):
             seasonal_periods=min(365, len(data)//2)
         ).fit()
     except ValueError:
-        # Fall back to non-seasonal model
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
@@ -105,11 +103,10 @@ def train_all_models():
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
-            # Updated model naming to be consistent
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)  # Changed from np_model
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)  # Changed from es_model
+            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)
+            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
         
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
@@ -149,7 +146,9 @@ def forecast_prophet(model, days, temp, rain):
 
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with regressors"""
-    future = model.make_future_dataframe(periods=days)
+    # Create future dataframe with proper structure
+    future = model.make_future_dataframe(df=pd.DataFrame({'ds': pd.date_range(datetime.today(), periods=days)}), 
+                                        periods=days)
     future['Temperature'] = temp
     future['Rainfall'] = rain
     forecast = model.predict(future)
