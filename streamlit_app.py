@@ -105,10 +105,11 @@ def train_all_models():
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
+            # Updated model naming to be consistent
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            models[f"{region.lower()}_np_model.pkl"] = train_neuralprophet(data)
-            models[f"{region.lower()}_es_model.pkl"] = train_exponential_smoothing(data)
+            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)  # Changed from np_model
+            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)  # Changed from es_model
         
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
@@ -206,6 +207,7 @@ def main():
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
+                # Correct model filename pattern
                 model_file = f"{region.lower()}_{model_type.lower().replace(' ', '')}_model"
                 
                 if model_type == "Prophet":
@@ -226,7 +228,7 @@ def main():
                     dates, values = forecast_prophet(model, days, temp, rain)
                 elif model_type == "NeuralProphet":
                     dates, values = forecast_neuralprophet(model, days, temp, rain)
-                else:
+                elif model_type == "Exponential Smoothing":
                     dates, values = forecast_expsmooth(model, days, temp, rain)
                 
                 forecast_df = pd.DataFrame({
