@@ -21,6 +21,8 @@ warnings.filterwarnings("ignore")
 @st.cache_data
 def load_data():
     """Load and preprocess malaria data with environmental factors"""
+    if not os.path.exists("malaria_data_upd.csv"):
+        raise FileNotFoundError("The data file 'malaria_data_upd.csv' is missing. Please upload it first.")
     df = pd.read_csv("malaria_data_upd.csv")
     df['Date'] = pd.to_datetime(df['Date'])
     return df
@@ -76,7 +78,12 @@ def train_exponential_smoothing(data):
 # --- Model Training Interface ---
 def train_all_models():
     """Train and save all models for all regions"""
-    df = load_data()
+    try:
+        df = load_data()
+    except FileNotFoundError as e:
+        st.error(str(e))
+        return
+    
     regions = df['Region'].unique()
     models = {}
     
@@ -86,7 +93,7 @@ def train_all_models():
             data = prepare_region_data(df, region)
             
             # ARIMA
-            with st.spinner(f"Training ARIMAX for {region}"):
+            with st.spinner(f"Training ARIMA for {region}"):
                 models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             
             # Prophet
@@ -149,10 +156,36 @@ def forecast_expsmooth(model, days, temp, rain):
     forecast = model.forecast(days, exogenous=future_exog)
     return pd.date_range(datetime.today(), periods=days), forecast
 
+def handle_file_upload():
+    """Handle CSV file upload and save it as malaria_data_upd.csv"""
+    uploaded_file = st.file_uploader("Upload updated malaria data (CSV)", type=['csv'])
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            # Basic validation
+            required_columns = ['Date', 'Region', 'Cases', 'Temperature', 'Rainfall']
+            if not all(col in df.columns for col in required_columns):
+                st.error(f"CSV file must contain these columns: {', '.join(required_columns)}")
+                return False
+            
+            df.to_csv("malaria_data_upd.csv", index=False)
+            st.success("✅ File uploaded and saved successfully!")
+            st.cache_data.clear()  # Clear cache to load new data
+            return True
+        except Exception as e:
+            st.error(f"Error processing file: {str(e)}")
+            return False
+    return False
+
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
     st.title("🦟 Malaria Cases Forecasting with Environmental Factors")
+    
+    # File Upload Section
+    with st.expander("📤 Update Data File", expanded=False):
+        st.write("Upload updated malaria data (CSV format with Date, Region, Cases, Temperature, Rainfall columns)")
+        handle_file_upload()
     
     # Model Training Section
     with st.expander("⚙️ Model Training", expanded=False):
@@ -207,7 +240,7 @@ def main():
                     elif model_type == "NeuralProphet":
                         dates, values = forecast_neuralprophet(model, days, temp, rain)
                     else:
-                        dates, values = forecast_es(model, days, temp, rain)
+                        dates, values = forecast_expsmooth(model, days, temp, rain)
                     
                     forecast_df = pd.DataFrame({
                         'Date': dates,
