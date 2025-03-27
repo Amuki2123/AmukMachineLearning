@@ -68,23 +68,20 @@ def train_neuralprophet(data):
 def train_exponential_smoothing(data):
     """Train Exponential Smoothing with robust seasonal handling"""
     try:
-        # Try with seasonality first (for datasets with sufficient length)
+        # Try with seasonality first
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
             seasonal='add',
-            seasonal_periods=min(365, len(data)//2)  # Use smaller seasonal period if needed
+            seasonal_periods=min(365, len(data)//2)
         ).fit()
-    except ValueError as e:
-        if "initial seasonals" in str(e):
-            # Fall back to non-seasonal model if seasonal fitting fails
-            st.warning(f"Using non-seasonal Exponential Smoothing for {region} (insufficient seasonal data)")
-            return ExponentialSmoothing(
-                data['Cases'],
-                trend='add',
-                seasonal=None
-            ).fit()
-        raise  # Re-raise other errors
+    except ValueError:
+        # Fall back to non-seasonal model
+        return ExponentialSmoothing(
+            data['Cases'],
+            trend='add',
+            seasonal=None
+        ).fit()
 
 # --- Model Training Interface ---
 def train_all_models():
@@ -102,7 +99,7 @@ def train_all_models():
     try:
         total_regions = len(df['Region'].unique())
         for i, region in enumerate(df['Region'].unique(), 1):
-            status_text.text(f"🚀 Training models for {region} ({i}/{total_regions})")
+            status_text.text(f"Training models for {region} ({i}/{total_regions})")
             data = prepare_region_data(df, region)
             
             progress = int((i-1) / total_regions * 100)
@@ -123,15 +120,13 @@ def train_all_models():
                         f.write(model_to_json(model).encode('utf-8'))
         
         progress_bar.progress(100)
-        status_text.success("✅ All models trained successfully!")
+        status_text.success("All models trained successfully!")
         st.balloons()
         
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
     finally:
         progress_bar.empty()
-
-# --- [Rest of your original code remains unchanged] ---
 
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
@@ -160,7 +155,7 @@ def forecast_neuralprophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_expsmooth(model, days, temp, rain):
-    """Generate Exponential Smoothing forecast (without exogenous variables)"""
+    """Generate Exponential Smoothing forecast"""
     forecast = model.forecast(days)
     return pd.date_range(datetime.today(), periods=days), forecast
 
@@ -176,7 +171,7 @@ def handle_file_upload():
                 return False
             
             df.to_csv(DATA_FILE, index=False)
-            st.success("✅ File uploaded and saved successfully!")
+            st.success("File uploaded and saved successfully!")
             st.cache_data.clear()
             return True
         except Exception as e:
@@ -196,7 +191,7 @@ def main():
     
     # Model Training Section
     with st.expander("⚙️ Model Training", expanded=False):
-        if st.button("Train All Models", key="train_btn"):
+        if st.button("Train All Models"):
             train_all_models()
     
     # Forecasting Interface
@@ -212,7 +207,7 @@ def main():
         rain = st.slider("Rainfall (mm)", 0.0, 300.0, 50.0, 5.0)
         days = st.slider("Forecast Days", 7, 365, 30, 1)
     
-    if st.button("Generate Forecast", type="primary", key="forecast_btn"):
+    if st.button("Generate Forecast", type="primary"):
         if not os.path.exists(MODEL_ZIP):
             st.error("Please train models first!")
             return
@@ -229,7 +224,7 @@ def main():
                     with zipf.open(model_file) as f:
                         model = pickle.load(f)
             
-            st.success(f"✅ {model_type} model loaded for {region}!")
+            st.success(f"{model_type} model loaded for {region}!")
             
             with st.spinner("Generating forecast..."):
                 if model_type == "ARIMA":
@@ -248,7 +243,7 @@ def main():
                     'Rainfall': rain
                 })
                 
-                # Visualization
+                # Visualization with matplotlib
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
                 ax.set_title(
