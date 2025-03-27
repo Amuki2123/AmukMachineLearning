@@ -70,7 +70,7 @@ def train_neuralprophet(data):
         batch_size=32,
         trainer_config={
             'accelerator': 'auto',
-            'enable_progress_bar': False
+            'enable_progress_bar': True
         }
     )
     
@@ -180,7 +180,6 @@ def forecast_neuralprophet(model, days, temp, rain):
         st.error(f"NeuralProphet prediction error: {str(e)}")
         # Return conservative fallback forecast
         return pd.date_range(datetime.today(), periods=days), [model.last_value]*days
-    })
     
     # Generate forecast
     forecast = model.predict(future)
