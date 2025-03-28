@@ -57,29 +57,30 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data):
-    """Train NeuralProphet with stability fixes"""
+    """Train NeuralProphet with strict column validation"""
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
-    # Ensure datetime format and frequency
-    df['ds'] = pd.to_datetime(df['ds'])
-    df = df.set_index('ds').asfreq('D').reset_index()
-    
+    # Validate columns
+    required_cols = ['ds', 'y', 'Temperature', 'Rainfall']
+    if not all(col in df.columns for col in required_cols):
+        raise ValueError(f"Missing columns. Required: {required_cols}")
+
     model = NeuralProphet(
         n_forecasts=1,
         n_lags=0,
-        yearly_seasonality=False,
-        weekly_seasonality=False,
-        daily_seasonality=False,
         epochs=50,
         batch_size=16,
+        yearly_seasonality=False,
+        weekly_seasonality=False,
+        daily_seasonality=False
     )
     
     model = model.add_future_regressor('Temperature')
     model = model.add_future_regressor('Rainfall')
     
-    with st.spinner(f"Training NeuralProphet (this may take a few minutes)..."):
-        metrics = model.fit(df, freq='D')
+    with st.spinner("Training NeuralProphet..."):
+        model.fit(df, freq='D')
     return model
 
 def train_exponential_smoothing(data):
@@ -96,51 +97,6 @@ def train_exponential_smoothing(data):
             data['Cases'],
             trend='add',
         ).fit()
-
-# --- Model Training Interface ---
-def train_all_models():
-    """Train and save all models for all regions"""
-    try:
-        df = load_data()
-    except Exception as e:
-        st.error(f"Failed to load data: {str(e)}")
-        return
-    
-    models = {}
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    try:
-        total_regions = len(REGIONS)
-        for i, region in enumerate(REGIONS, 1):
-            status_text.text(f"Training models for {region} ({i}/{total_regions})")
-            data = prepare_region_data(df, region)
-            
-            progress = int((i-1) / total_regions * 100)
-            progress_bar.progress(progress)
-            
-            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
-        
-        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-            for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
-        
-        progress_bar.progress(100)
-        status_text.success("All models trained successfully!")
-        st.balloons()
-        
-    except Exception as e:
-        st.error(f"Model training failed: {str(e)}")
-    finally:
-        progress_bar.empty()
 
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
@@ -161,29 +117,24 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting"""
+    """Robust NeuralProphet forecasting with proper dataframe structure"""
     try:
-        # Create proper future dates starting from tomorrow
+        # Create future dates starting from tomorrow
         start_date = datetime.today() + timedelta(days=1)
-        future_dates = pd.date_range(
-            start=start_date,
-            periods=days,
-            freq='D'  # Explicitly set daily frequency
-        )
-        
-        # Create future dataframe
+        future_dates = pd.date_range(start=start_date, periods=days, freq='D')
+
+        # Build future dataframe with ALL required columns
         future = pd.DataFrame({
             'ds': future_dates,
+            'y': np.nan,  # Dummy y column (required but ignored)
             'Temperature': [temp] * days,
             'Rainfall': [rain] * days
         })
-        
-        # Make prediction
+
+        # Generate forecast
         forecast = model.predict(future)
-        
-        # Return dates and forecasted values
         return forecast['ds'].values, forecast['yhat1'].values
-    
+
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
