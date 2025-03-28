@@ -69,7 +69,7 @@ def train_neuralprophet(data):
         weekly_seasonality=False,
         daily_seasonality=False,
         epochs=50,  # Reduced epochs for stability
-        batch_size=8,
+        batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
         num_hidden_layers=0  # Simpler model
