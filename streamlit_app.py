@@ -180,29 +180,25 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting"""
+    """Robust NeuralProphet forecasting with updated API"""
     try:
-        # Create future dataframe with proper structure
-        future = model.make_future_dataframe(
-            periods=days,
-            n_historic=0,
-            df=pd.DataFrame({'ds': [datetime.today()]})
-        )
+        # Create future dates dataframe
+        future = pd.DataFrame({
+            'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
+        })
         
-        # Add regressors
+        # Add required columns
+        future['y'] = np.nan  # Dummy target column
         future['Temperature'] = temp
         future['Rainfall'] = rain
         
-        # Add dummy y column if needed
-        if 'y' not in future.columns:
-            future['y'] = np.nan
-            
+        # Generate forecast
         forecast = model.predict(future)
-        return forecast['ds'].values[-days:], forecast['yhat1'].values[-days:]
-    
+        return forecast['ds'].values, forecast['yhat1'].values
+
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
-        return pd.date_range(datetime.today(), periods=days), np.zeros(days)
+        return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
 
 def forecast_expsmooth(model, days, temp, rain):
     """Generate Exponential Smoothing forecast"""
