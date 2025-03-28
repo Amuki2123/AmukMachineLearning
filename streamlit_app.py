@@ -73,6 +73,7 @@ def train_neuralprophet(data):
         learning_rate=0.01,
         trend_reg=0,
         trainer_config={
+            'accelerator': 'auto',
             'max_epochs': 50,
             'enable_progress_bar': True
         }
