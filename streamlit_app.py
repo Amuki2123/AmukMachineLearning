@@ -30,52 +30,6 @@ def load_data():
     df = pd.read_csv(DATA_FILE)
     df['Date'] = pd.to_datetime(df['Date'])
     return df
-    # --- Model Training Interface ---
-def train_all_models():
-    """Train and save all models for all regions"""
-    try:
-        df = load_data()
-    except Exception as e:
-        st.error(f"Failed to load data: {str(e)}")
-        return
-    
-    models = {}
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    try:
-        total_regions = len(REGIONS)
-        for i, region in enumerate(REGIONS, 1):
-            status_text.text(f"Training models for {region} ({i}/{total_regions})")
-            data = prepare_region_data(df, region)
-            
-            progress = int((i-1) / total_regions * 100)
-            progress_bar.progress(progress)
-            
-            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
-        
-        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-            for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
-        
-        progress_bar.progress(100)
-        status_text.success("All models trained successfully!")
-        st.balloons()
-        
-    except Exception as e:
-        st.error(f"Model training failed: {str(e)}")
-    finally:
-        progress_bar.empty()
-
-# --- (All other existing functions remain exactly the same below this point) ---
 
 def prepare_region_data(df, region):
     """Prepare dataset for a specific region"""
@@ -103,30 +57,39 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data):
-    """Train NeuralProphet with strict column validation"""
+    """Train NeuralProphet with stability fixes"""
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
-    # Validate columns
-    required_cols = ['ds', 'y', 'Temperature', 'Rainfall']
-    if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"Missing columns. Required: {required_cols}")
-
+    # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
         n_forecasts=1,
-        n_lags=0,
-        epochs=50,
-        batch_size=16,
+        n_lags=0,  # No autoregression
         yearly_seasonality=False,
         weekly_seasonality=False,
-        daily_seasonality=False
+        daily_seasonality=False,
+        epochs=50,  # Reduced epochs for stability
+        batch_size=8,
+        learning_rate=0.01,
+        trend_reg=0,
+        num_hidden_layers=0  # Simpler model
+        trainer_config={
+            'accelerator': 'auto',
+            'max_epochs': 50,
+            'enable_progress_bar': True
+        }
     )
     
-    model = model.add_future_regressor('Temperature')
-    model = model.add_future_regressor('Rainfall')
+    model.add_future_regressor('Temperature')
+    model.add_future_regressor('Rainfall')
     
-    with st.spinner("Training NeuralProphet..."):
-        model.fit(df, freq='D')
+    # Train with progress feedback
+    with st.spinner("Training NeuralProphet (this may take a minute)..."):
+        try:
+            metrics = model.fit(df, freq='D', progress='bar')
+        except Exception as e:
+            st.error(f"Training error: {str(e)}")
+            return None
     return model
 
 def train_exponential_smoothing(data):
@@ -143,6 +106,61 @@ def train_exponential_smoothing(data):
             data['Cases'],
             trend='add',
         ).fit()
+
+# --- Model Training Interface ---
+def train_all_models():
+    """Train and save all models for all regions"""
+    try:
+        df = load_data()
+    except Exception as e:
+        st.error(f"Failed to load data: {str(e)}")
+        return
+    
+    models = {}
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        total_regions = len(REGIONS)
+        for i, region in enumerate(REGIONS, 1):
+            status_text.text(f"Training models for {region} ({i}/{total_regions})")
+            data = prepare_region_data(df, region)
+            
+            progress = int((i-1) / total_regions * 100)
+            progress_bar.progress(progress)
+            
+            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
+            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            
+            # Handle NeuralProphet training carefully
+            neuralprophet_model = train_neuralprophet(data)
+            if neuralprophet_model is not None:
+                models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
+            else:
+                st.warning(f"NeuralProphet failed for {region}, skipping...")
+            
+            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+        
+        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
+            for name, model in models.items():
+                if name.endswith('.pkl'):
+                    with zipf.open(name, 'w') as f:
+                        pickle.dump(model, f)
+                elif name.endswith('.json'):
+                    with zipf.open(name, 'w') as f:
+                        f.write(model_to_json(model).encode('utf-8'))
+        
+        progress_bar.progress(100)
+        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
+            status_text.success("All models trained successfully!")
+            st.balloons()
+        else:
+            status_text.warning("Models trained with some NeuralProphet failures")
+        
+    except Exception as e:
+        st.error(f"Model training failed: {str(e)}")
+    finally:
+        progress_bar.empty()
 
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
@@ -163,27 +181,29 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting with proper dataframe structure"""
+    """Robust NeuralProphet forecasting"""
     try:
-        # Create future dates starting from tomorrow
-        start_date = datetime.today() + timedelta(days=1)
-        future_dates = pd.date_range(start=start_date, periods=days, freq='D')
-
-        # Build future dataframe with ALL required columns
-        future = pd.DataFrame({
-            'ds': future_dates,
-            'y': np.nan,  # Dummy y column (required but ignored)
-            'Temperature': [temp] * days,
-            'Rainfall': [rain] * days
-        })
-
-        # Generate forecast
+        # Create future dataframe with proper structure
+        future = model.make_future_dataframe(
+            periods=days,
+            n_historic=0,
+            df=pd.DataFrame({'ds': [datetime.today()]})
+        )
+        
+        # Add regressors
+        future['Temperature'] = temp
+        future['Rainfall'] = rain
+        
+        # Add dummy y column if needed
+        if 'y' not in future.columns:
+            future['y'] = np.nan
+            
         forecast = model.predict(future)
-        return forecast['ds'].values, forecast['yhat1'].values
-
+        return forecast['ds'].values[-days:], forecast['yhat1'].values[-days:]
+    
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
-        return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
+        return pd.date_range(datetime.today(), periods=days), np.zeros(days)
 
 def forecast_expsmooth(model, days, temp, rain):
     """Generate Exponential Smoothing forecast"""
@@ -193,7 +213,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟 Malaria Cases Forecasting with Environmental Factors")
+    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -245,6 +265,11 @@ def main():
                 else:
                     model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
                 
+                # Skip if NeuralProphet failed during training
+                if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
+                    st.error("NeuralProphet model not available for this region (training failed)")
+                    return
+                
                 if model_type == "Prophet":
                     with zipf.open(model_file) as f:
                         model = model_from_json(f.read().decode('utf-8'))
@@ -265,11 +290,6 @@ def main():
                     dates, values = forecast_expsmooth(model, days, temp, rain)
                 
                 # Handle different return types from models
-                if isinstance(values, (pd.Series, np.ndarray)):
-                    values = values.values if hasattr(values, 'values') else values
-                elif isinstance(values, list):
-                    values = np.array(values)
-                
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
                     'Cases': np.round(values).astype(int),
