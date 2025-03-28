@@ -93,6 +93,51 @@ def train_exponential_smoothing(data):
             trend='add',
         ).fit()
 
+# --- Model Training Interface ---
+def train_all_models():
+    """Train and save all models for all regions"""
+    try:
+        df = load_data()
+    except Exception as e:
+        st.error(f"Failed to load data: {str(e)}")
+        return
+    
+    models = {}
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        total_regions = len(df['Region'].unique())
+        for i, region in enumerate(df['Region'].unique(), 1):
+            status_text.text(f"Training models for {region} ({i}/{total_regions})")
+            data = prepare_region_data(df, region)
+            
+            progress = int((i-1) / total_regions * 100)
+            progress_bar.progress(progress)
+            
+            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
+            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            models[f"{region.lower()}_neuralprophet_model.pkl"] = train_neuralprophet(data)
+            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+        
+        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
+            for name, model in models.items():
+                if name.endswith('.pkl'):
+                    with zipf.open(name, 'w') as f:
+                        pickle.dump(model, f)
+                elif name.endswith('.json'):
+                    with zipf.open(name, 'w') as f:
+                        f.write(model_to_json(model).encode('utf-8'))
+        
+        progress_bar.progress(100)
+        status_text.success("All models trained successfully!")
+        st.balloons()
+        
+    except Exception as e:
+        st.error(f"Model training failed: {str(e)}")
+    finally:
+        progress_bar.empty()
+
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
     """Generate ARIMAX forecast with environmental factors"""
