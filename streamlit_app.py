@@ -58,21 +58,24 @@ def train_prophet(data):
 
 def train_neuralprophet(data):
     """Train NeuralProphet with stability fixes"""
-    df = data.reset_index().rename(columns={'Date': 'ds', 'Cases': 'y'})
+    df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
+    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
     model = NeuralProphet(
         n_forecasts=1,
-        n_lags=0,  # Changed from 7 to 0 for simplicity
+        n_lags=0,
         yearly_seasonality=False,
         weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=50,  # Reduced from 100
+        epochs=50,
         batch_size=16,
     )
     
-    model.add_future_regressor('Temperature')
-    model.add_future_regressor('Rainfall')
-    metrics = model.fit(df, freq='D')
+    model = model.add_future_regressor('Temperature')
+    model = model.add_future_regressor('Rainfall')
+    
+    with st.spinner(f"Training NeuralProphet (this may take a few minutes)..."):
+        metrics = model.fit(df, freq='D')
     return model
 
 def train_exponential_smoothing(data):
@@ -81,7 +84,7 @@ def train_exponential_smoothing(data):
         return ExponentialSmoothing(
             data['Cases'],
             trend='add',
-            seasonal=None,  # Removed seasonal for stability
+            seasonal=None,
         ).fit()
     except Exception as e:
         st.warning(f"Using simpler Exponential Smoothing: {str(e)}")
@@ -156,13 +159,21 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Robust NeuralProphet forecasting"""
     try:
-        future = pd.DataFrame({
-            'ds': pd.date_range(datetime.today(), periods=days),
-            'Temperature': [temp] * days,
-            'Rainfall': [rain] * days
-        })
+        # Create proper future dataframe with NeuralProphet's method
+        future = model.make_future_dataframe(
+            df=pd.DataFrame({'ds': [datetime.today()]}),  # Dummy dataframe
+            periods=days,
+            n_historic=0
+        )
+        
+        # Add regressors
+        future['Temperature'] = temp
+        future['Rainfall'] = rain
+        
+        # Make prediction
         forecast = model.predict(future)
         return forecast['ds'], forecast['yhat1']
+    
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days), [0]*days
