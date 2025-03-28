@@ -72,7 +72,6 @@ def train_neuralprophet(data):
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
-        num_hidden_layers=0,  # Simpler model
         trainer_config={
             'accelerator': 'auto',
             'max_epochs': 50,
