@@ -61,6 +61,10 @@ def train_neuralprophet(data):
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
+    # Ensure datetime format and frequency
+    df['ds'] = pd.to_datetime(df['ds'])
+    df = df.set_index('ds').asfreq('D').reset_index()
+    
     model = NeuralProphet(
         n_forecasts=1,
         n_lags=0,
@@ -107,8 +111,8 @@ def train_all_models():
     status_text = st.empty()
     
     try:
-        total_regions = len(df['Region'].unique())
-        for i, region in enumerate(df['Region'].unique(), 1):
+        total_regions = len(REGIONS)
+        for i, region in enumerate(REGIONS, 1):
             status_text.text(f"Training models for {region} ({i}/{total_regions})")
             data = prepare_region_data(df, region)
             
@@ -159,20 +163,25 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Robust NeuralProphet forecasting"""
     try:
-        # Create future dataframe without n_historic parameter
-        future = model.make_future_dataframe(
+        # Create proper future dates starting from tomorrow
+        start_date = datetime.today() + timedelta(days=1)
+        future_dates = pd.date_range(
+            start=start_date,
             periods=days,
-            df=pd.DataFrame({'ds': [datetime.today()]})  # Dummy dataframe
+            freq='D'  # Explicitly set daily frequency
         )
         
-        # Add regressors
-        future['Temperature'] = temp
-        future['Rainfall'] = rain
+        # Create future dataframe
+        future = pd.DataFrame({
+            'ds': future_dates,
+            'Temperature': [temp] * days,
+            'Rainfall': [rain] * days
+        })
         
         # Make prediction
         forecast = model.predict(future)
         
-        # Ensure we return numpy arrays for consistent handling
+        # Return dates and forecasted values
         return forecast['ds'].values, forecast['yhat1'].values
     
     except Exception as e:
