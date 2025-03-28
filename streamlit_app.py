@@ -1,4 +1,4 @@
-vimport os
+import os
 import zipfile
 import pickle
 import json
