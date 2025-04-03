@@ -14,9 +14,12 @@ from neuralprophet import NeuralProphet
 import pmdarima as pm
 from prophet.serialize import model_to_json, model_from_json
 import warnings
+import tempfile
 warnings.filterwarnings("ignore")
 
 # --- Constants ---
+# Use temp directories for cloud compatibility
+DATA_DIR = pathlib.Path(tempfile.gettempdir())
 DATA_DIR = pathlib.Path(__file__).parent
 DATA_FILE = DATA_DIR / "malaria_data_upd.csv"
 MODEL_ZIP = DATA_DIR / "Malaria_Forecasting.zip"
