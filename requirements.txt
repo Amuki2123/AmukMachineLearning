@@ -1,6 +1,6 @@
 # Core Libraries
 numpy==1.26.0
-pandas==2.1.1
+pandas==1.5.3  # Downgraded to support neuralprophet 0.6.1
 scipy==1.11.2
 
 # Visualization
@@ -10,7 +10,7 @@ plotly==5.15.0
 
 # Time Series Forecasting
 prophet==1.1.5
-neuralprophet==0.6.1
+neuralprophet==0.6.1  # Now compatible with pandas<2.0.0
 statsmodels==0.14.1
 pmdarima==2.0.4
 
