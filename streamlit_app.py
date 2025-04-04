@@ -9,9 +9,11 @@ st.set_page_config(
 )
 
 # --- Imports ---
+import os
 import zipfile
 import pickle
 import json
+import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,20 +37,7 @@ MODEL_TYPES = ["ARIMA", "Prophet", "NeuralProphet", "Exponential Smoothing"]
 def load_data():
     """Load and preprocess malaria data with environmental factors"""
     if not os.path.exists(DATA_FILE):
-        st.warning(f"Using sample data as '{DATA_FILE}' is missing.")
-        # Create sample data if file doesn't exist
-        dates = pd.date_range(start='2020-01-01', end='2023-12-31', freq='M')
-        data = {
-            'Date': np.tile(dates, len(REGIONS)),
-            'Region': np.repeat(REGIONS, len(dates)),
-            'Cases': np.random.poisson(100, len(dates)*len(REGIONS)),
-            'Temperature': np.random.uniform(20, 35, len(dates)*len(REGIONS)),
-            'Rainfall': np.random.uniform(0, 200, len(dates)*len(REGIONS))
-        }
-        df = pd.DataFrame(data)
-        df.to_csv(DATA_FILE, index=False)
-        return df
-    
+        raise FileNotFoundError(f"The data file '{DATA_FILE}' is missing. Please upload it first.")
     df = pd.read_csv(DATA_FILE)
     df['Date'] = pd.to_datetime(df['Date'])
     return df
@@ -83,13 +72,14 @@ def train_neuralprophet(data):
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
+    # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
         n_forecasts=1,
-        n_lags=0,
+        n_lags=0,  # No autoregression
         yearly_seasonality=False,
         weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=50,
+        epochs=50,  # Reduced epochs for stability
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
@@ -103,6 +93,7 @@ def train_neuralprophet(data):
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
     
+    # Train with progress feedback
     with st.spinner("Training NeuralProphet (this may take a minute)..."):
         try:
             metrics = model.fit(df, freq='D', progress='bar')
@@ -151,6 +142,7 @@ def train_all_models():
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             
+            # Handle NeuralProphet training carefully
             neuralprophet_model = train_neuralprophet(data)
             if neuralprophet_model is not None:
                 models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
@@ -201,15 +193,20 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Robust NeuralProphet forecasting with updated API"""
     try:
+        # Create future dates dataframe
         future = pd.DataFrame({
             'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
         })
-        future['y'] = np.nan
+        
+        # Add required columns
+        future['y'] = np.nan  # Dummy target column
         future['Temperature'] = temp
         future['Rainfall'] = rain
         
+        # Generate forecast
         forecast = model.predict(future)
         return forecast['ds'].values, forecast['yhat1'].values
+
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
@@ -221,7 +218,8 @@ def forecast_expsmooth(model, days, temp, rain):
 
 # --- Streamlit App ---
 def main():
-    st.title("🦟 Malaria Cases Forecasting with Environmental Factors 🦟")
+    st.set_page_config(page_title="Malaria Forecasting", layout="wide")
+    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -265,6 +263,7 @@ def main():
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
+                # Correct model filename pattern
                 if model_type == "Exponential Smoothing":
                     model_file = f"{region.lower()}_expsmooth_model.pkl"
                 elif model_type == "Prophet":
@@ -272,6 +271,7 @@ def main():
                 else:
                     model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
                 
+                # Skip if NeuralProphet failed during training
                 if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
                     st.error("NeuralProphet model not available for this region (training failed)")
                     return
@@ -295,6 +295,7 @@ def main():
                 elif model_type == "Exponential Smoothing":
                     dates, values = forecast_expsmooth(model, days, temp, rain)
                 
+                # Handle different return types from models
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
                     'Cases': np.round(values).astype(int),
@@ -302,6 +303,7 @@ def main():
                     'Rainfall': rain
                 })
                 
+                # Visualization
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
                 ax.set_title(
@@ -314,6 +316,7 @@ def main():
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 
+                # Data Export
                 csv = forecast_df.to_csv(index=False)
                 st.download_button(
                     "📥 Download Forecast",
