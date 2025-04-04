@@ -1,18 +1,27 @@
 import os
 import streamlit as st
-from streamlit.web.server.server import Server
 
-# Set page config first
+# MUST be the first Streamlit command
 st.set_page_config(
     page_title="Malaria Forecasting",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Apply server configuration
-if not hasattr(st, 'already_configured'):
-    configure_server()
-    st.already_configured = True
+# --- Security Workaround ---
+def configure_security():
+    try:
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        headers = _get_websocket_headers() or {}
+        headers.update({
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS, POST",
+            "Access-Control-Allow-Headers": "Content-Type"
+        })
+    except Exception as e:
+        st.warning(f"Security configuration warning: {str(e)}")
+
+configure_security()
 
 # --- Rest of your imports ---
 import os
@@ -341,23 +350,37 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    # Ensure proper file permissions
-    def set_permissions():
-        files = [DATA_FILE, MODEL_ZIP]
-        for file in files:
+    # Set file permissions (critical for Streamlit Cloud)
+    def ensure_permissions():
+        required_files = ["malaria_data_upd.csv", "Malaria_Forecasting.zip"]
+        for file in required_files:
             if os.path.exists(file):
                 try:
                     os.chmod(file, 0o666)
                 except Exception as e:
-                    st.warning(f"Couldn't set permissions for {file}: {str(e)}")
+                    st.warning(f"Permission setting failed for {file}: {str(e)}")
     
-    set_permissions()
+    ensure_permissions()
     
-    # Add deployment notice
+    # Add deployment-specific handling
     if os.getenv('IS_STREAMLIT_CLOUD'):
         st.info("""
         **Streamlit Cloud Deployment**  
-        This app is running on Streamlit Cloud.
+        If you encounter permission issues:
+        1. Refresh the page
+        2. Clear browser cache
+        3. Check the app logs
         """)
     
-    main()
+    # Error handling wrapper
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Application initialization failed: {str(e)}")
+        st.markdown("""
+        **Troubleshooting Steps:**
+        1. Verify all required files are uploaded
+        2. Check the Streamlit Cloud logs
+        3. Try reducing dependency versions
+        """)
+        st.stop())
