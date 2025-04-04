@@ -1,34 +1,17 @@
 import os
 import streamlit as st
 
-# MUST be the first Streamlit command
+# MUST be the first and ONLY Streamlit command at the top
 st.set_page_config(
     page_title="Malaria Forecasting",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- Security Workaround ---
-def configure_security():
-    try:
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        headers = _get_websocket_headers() or {}
-        headers.update({
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS, POST",
-            "Access-Control-Allow-Headers": "Content-Type"
-        })
-    except Exception as e:
-        st.warning(f"Security configuration warning: {str(e)}")
-
-configure_security()
-
-# --- Rest of your imports ---
-import os
+# --- Imports ---
 import zipfile
 import pickle
 import json
-import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,13 +23,6 @@ import pmdarima as pm
 from prophet.serialize import model_to_json, model_from_json
 import warnings
 warnings.filterwarnings("ignore")
-
-# --- Security and Permission Fixes ---
-st.set_page_config(
-    page_title="Malaria Forecasting",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # --- Constants ---
 DATA_FILE = "malaria_data_upd.csv"
@@ -350,37 +326,4 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    # Set file permissions (critical for Streamlit Cloud)
-    def ensure_permissions():
-        required_files = ["malaria_data_upd.csv", "Malaria_Forecasting.zip"]
-        for file in required_files:
-            if os.path.exists(file):
-                try:
-                    os.chmod(file, 0o666)
-                except Exception as e:
-                    st.warning(f"Permission setting failed for {file}: {str(e)}")
-    
-    ensure_permissions()
-    
-    # Add deployment-specific handling
-    if os.getenv('IS_STREAMLIT_CLOUD'):
-        st.info("""
-        **Streamlit Cloud Deployment**  
-        If you encounter permission issues:
-        1. Refresh the page
-        2. Clear browser cache
-        3. Check the app logs
-        """)
-    
-    # Error handling wrapper
-    try:
-        main()
-    except Exception as e:
-        st.error(f"Application initialization failed: {str(e)}")
-        st.markdown("""
-        **Troubleshooting Steps:**
-        1. Verify all required files are uploaded
-        2. Check the Streamlit Cloud logs
-        3. Try reducing dependency versions
-        """)
-        st.stop())
+    main()
