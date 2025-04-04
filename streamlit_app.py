@@ -26,7 +26,20 @@ MODEL_TYPES = ["ARIMA", "Prophet", "NeuralProphet", "Exponential Smoothing"]
 def load_data():
     """Load and preprocess malaria data with environmental factors"""
     if not os.path.exists(DATA_FILE):
-        raise FileNotFoundError(f"The data file '{DATA_FILE}' is missing. Please upload it first.")
+        st.warning(f"Using sample data as '{DATA_FILE}' is missing.")
+        # Create sample data if file doesn't exist
+        dates = pd.date_range(start='2020-01-01', end='2023-12-31', freq='M')
+        data = {
+            'Date': np.tile(dates, len(REGIONS)),
+            'Region': np.repeat(REGIONS, len(dates)),
+            'Cases': np.random.poisson(100, len(dates)*len(REGIONS)),
+            'Temperature': np.random.uniform(20, 35, len(dates)*len(REGIONS)),
+            'Rainfall': np.random.uniform(0, 200, len(dates)*len(REGIONS))
+        }
+        df = pd.DataFrame(data)
+        df.to_csv(DATA_FILE, index=False)
+        return df
+    
     df = pd.read_csv(DATA_FILE)
     df['Date'] = pd.to_datetime(df['Date'])
     return df
@@ -207,8 +220,7 @@ def forecast_expsmooth(model, days, temp, rain):
 
 # --- Streamlit App ---
 def main():
-    st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟 Malaria Cases Forecasting with Environmental Factors 🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -318,4 +330,15 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
+    # Set page config first
+    st.set_page_config(page_title="Malaria Forecasting", layout="wide")
+    
+    # Add a deployment notice
+    if os.getenv('IS_STREAMLIT_CLOUD'):
+        st.info("""
+        **Streamlit Cloud Deployment**  
+        This app is running on Streamlit Cloud. 
+        Upload your data file to get started.
+        """)
+    
     main()
