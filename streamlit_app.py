@@ -2,15 +2,6 @@ import os
 import streamlit as st
 from streamlit.web.server.server import Server
 
-# --- Critical Security Fixes ---
-def configure_server():
-    server = Server.get_current()
-    server._headers.update({
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-    })
-
 # Set page config first
 st.set_page_config(
     page_title="Malaria Forecasting",
@@ -24,11 +15,6 @@ if not hasattr(st, 'already_configured'):
     st.already_configured = True
 
 # --- Rest of your imports ---
-import zipfile
-import pickle
-import json
-import pandas as pd
-# ... (keep all your other existing imports)
 import os
 import zipfile
 import pickle
