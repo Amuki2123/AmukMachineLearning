@@ -1,4 +1,35 @@
 import os
+import streamlit as st
+from streamlit.web.server.server import Server
+
+# --- Critical Security Fixes ---
+def configure_server():
+    server = Server.get_current()
+    server._headers.update({
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    })
+
+# Set page config first
+st.set_page_config(
+    page_title="Malaria Forecasting",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Apply server configuration
+if not hasattr(st, 'already_configured'):
+    configure_server()
+    st.already_configured = True
+
+# --- Rest of your imports ---
+import zipfile
+import pickle
+import json
+import pandas as pd
+# ... (keep all your other existing imports)
+import os
 import zipfile
 import pickle
 import json
@@ -324,18 +355,23 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    # Set file permissions (important for Streamlit Cloud)
-    if os.path.exists(DATA_FILE):
-        os.chmod(DATA_FILE, 0o644)
-    if os.path.exists(MODEL_ZIP):
-        os.chmod(MODEL_ZIP, 0o644)
+    # Ensure proper file permissions
+    def set_permissions():
+        files = [DATA_FILE, MODEL_ZIP]
+        for file in files:
+            if os.path.exists(file):
+                try:
+                    os.chmod(file, 0o666)
+                except Exception as e:
+                    st.warning(f"Couldn't set permissions for {file}: {str(e)}")
+    
+    set_permissions()
     
     # Add deployment notice
     if os.getenv('IS_STREAMLIT_CLOUD'):
         st.info("""
         **Streamlit Cloud Deployment**  
-        This app is running on Streamlit Cloud. 
-        Upload your data file to get started.
+        This app is running on Streamlit Cloud.
         """)
     
     main()
