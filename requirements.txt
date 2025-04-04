@@ -1,8 +1,8 @@
 streamlit==1.28.0
-pandas==2.0.3
-numpy==1.24.4
-prophet==1.1.5
-matplotlib==3.7.2
-statsmodels==0.14.0
-pmdarima==2.0.3
-neuralprophet==0.4.0
+pandas==1.5.3
+numpy==1.23.5
+prophet==1.1.1
+matplotlib==3.6.3
+statsmodels==0.13.5
+pmdarima==2.0.2
+neuralprophet==0.3.1
