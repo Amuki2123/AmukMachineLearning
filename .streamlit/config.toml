@@ -3,6 +3,7 @@ port = 8501
 enableCORS = true
 enableXsrfProtection = false
 allowedOrigins = "*"
+maxUploadSize = 500  # Increase from default 200MB if needed
 
 [browser]
 serverAddress = "0.0.0.0"
