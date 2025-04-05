@@ -329,4 +329,9 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Fatal error: {str(e)}")
+        with st.expander("Technical details"):
+            st.exception(e)
