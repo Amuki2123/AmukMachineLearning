@@ -1,13 +1,4 @@
 import os
-import streamlit as st
-
-# MUST be the first and ONLY Streamlit command at the top
-st.set_page_config(
-    page_title="Malaria Forecasting",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-import os
 import zipfile
 import pickle
 import json
