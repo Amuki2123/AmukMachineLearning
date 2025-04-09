@@ -1,15 +1,4 @@
 import os
-import streamlit as st
-
-# MUST be the first and ONLY Streamlit command at the top
-st.set_page_config(
-    page_title="Malaria Forecasting",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- Imports ---
-import os
 import zipfile
 import pickle
 import json
@@ -329,9 +318,4 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        st.error(f"Fatal error: {str(e)}")
-        with st.expander("Technical details"):
-            st.exception(e)
+    main()
