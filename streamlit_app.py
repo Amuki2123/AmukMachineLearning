@@ -24,17 +24,60 @@ MODEL_TYPES = ["ARIMA", "Prophet", "NeuralProphet", "Exponential Smoothing"]
 # --- Data Preparation ---
 @st.cache_data
 def load_data():
-    """Load and preprocess malaria data with environmental factors"""
+    """Load and validate malaria data with environmental factors"""
     if not os.path.exists(DATA_FILE):
         raise FileNotFoundError(f"The data file '{DATA_FILE}' is missing. Please upload it first.")
+    
     df = pd.read_csv(DATA_FILE)
+    
+    # Validate required columns
+    required_cols = ['Date', 'Region', 'Cases', 'Temperature', 'Rainfall']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
+    
     df['Date'] = pd.to_datetime(df['Date'])
     return df
 
 def prepare_region_data(df, region):
-    """Prepare dataset for a specific region"""
+    """Prepare dataset for a specific region with validation"""
+    if region not in df['Region'].unique():
+        raise ValueError(f"Region '{region}' not found in data")
+        
     region_df = df[df['Region'] == region].set_index('Date').sort_index()
     return region_df[['Cases', 'Temperature', 'Rainfall']]
+
+def prepare_neuralprophet_data(data, region):
+    """Prepare and validate region-specific data for NeuralProphet"""
+    try:
+        # Filter for specific region
+        region_df = data[data['Region'] == region].copy()
+        if len(region_df) == 0:
+            raise ValueError(f"No data found for region: {region}")
+        
+        # Select and rename required columns
+        df = region_df[['Date', 'Cases', 'Temperature', 'Rainfall']].rename(
+            columns={'Date': 'ds', 'Cases': 'y'}
+        )
+        
+        # Convert dates and sort
+        df['ds'] = pd.to_datetime(df['ds'])
+        df = df.sort_values('ds')
+        
+        # Handle missing values
+        numeric_cols = ['y', 'Temperature', 'Rainfall']
+        df[numeric_cols] = df[numeric_cols].ffill().bfill()
+        df = df.dropna(subset=['y'])
+        
+        # Final validation
+        if len(df) < 28:
+            raise ValueError(f"Only {len(df)} valid rows (minimum 28 required)")
+            
+        return df
+        
+    except Exception as e:
+        st.error(f"Data preparation failed for {region}: {str(e)}")
+        return None
 
 # --- Model Training Functions ---
 def train_arima(data):
@@ -56,40 +99,50 @@ def train_prophet(data):
     model.fit(df)
     return model
 
-def train_neuralprophet(data):
-    """Train NeuralProphet with stability fixes"""
-    df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
-    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
-    
-    # NeuralProphet configuration with reduced complexity
-    model = NeuralProphet(
-        n_forecasts=1,
-        n_lags=0,  # No autoregression
-        yearly_seasonality=False,
-        weekly_seasonality=False,
-        daily_seasonality=False,
-        epochs=50,  # Reduced epochs for stability
-        batch_size=16,
-        learning_rate=0.01,
-        trend_reg=0,
-        trainer_config={
-            'accelerator': 'cpu',
-            'max_epochs': 50,
-            'enable_progress_bar': True
-        }
-    )
-    
-    model.add_future_regressor('Temperature')
-    model.add_future_regressor('Rainfall')
-    
-    # Train with progress feedback
-    with st.spinner("Training NeuralProphet (this may take a minute)..."):
-        try:
-            metrics = model.fit(df, freq='D', progress='bar')
-        except Exception as e:
-            st.error(f"Training error: {str(e)}")
+def train_neuralprophet(data, region):
+    """Robust NeuralProphet training with comprehensive error handling"""
+    try:
+        # Prepare and validate data
+        df = prepare_neuralprophet_data(data, region)
+        if df is None:
             return None
-    return model
+            
+        # Show data summary (without nested expander)
+        st.write(f"### Training Data for {region}")
+        st.write(f"**Time range:** {df['ds'].min().date()} to {df['ds'].max().date()}")
+        st.write(f"**Observations:** {len(df)}")
+        if st.checkbox(f"Show data summary for {region}"):
+            st.dataframe(df.describe())
+        
+        # Configure model
+        model = NeuralProphet(
+            n_forecasts=30,
+            n_lags=14,
+            yearly_seasonality=True,
+            weekly_seasonality=True,
+            daily_seasonality=False,
+            epochs=100,
+            learning_rate=0.001,
+            impute_missing=True,
+            impute_linear=5,
+            trainer_config={'accelerator': 'cpu'}
+        )
+        model.add_future_regressor('Temperature')
+        model.add_future_regressor('Rainfall')
+        
+        # Train with progress
+        with st.spinner(f"Training NeuralProphet for {region}..."):
+            metrics = model.fit(df, freq='D')
+            st.success(f"""
+                **{region} trained successfully!**  
+                - Final MAE: {metrics['MAE'].iloc[-1]:.2f}  
+                - Training time: {metrics['train_time']:.1f} seconds
+            """)
+            return model
+            
+    except Exception as e:
+        st.error(f"NeuralProphet training failed for {region}: {str(e)}")
+        return None
 
 def train_exponential_smoothing(data):
     """Train Exponential Smoothing with robust seasonal handling"""
@@ -119,47 +172,56 @@ def train_all_models():
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    try:
-        total_regions = len(REGIONS)
-        for i, region in enumerate(REGIONS, 1):
-            status_text.text(f"Training models for {region} ({i}/{total_regions})")
-            data = prepare_region_data(df, region)
+    with st.expander("Model Training Progress", expanded=True):
+        try:
+            total_regions = len(REGIONS)
+            for i, region in enumerate(REGIONS, 1):
+                status_text.text(f"Training models for {region} ({i}/{total_regions})")
+                
+                try:
+                    data = prepare_region_data(df, region)
+                    
+                    # Train models
+                    models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
+                    models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+                    
+                    # NeuralProphet with enhanced error handling
+                    neuralprophet_model = train_neuralprophet(df, region)
+                    if neuralprophet_model:
+                        models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
+                    else:
+                        st.warning(f"NeuralProphet failed for {region}, skipping...")
+                    
+                    models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+                    
+                except Exception as e:
+                    st.error(f"Failed to process {region}: {str(e)}")
+                    continue
+                    
+                progress = int(i / total_regions * 100)
+                progress_bar.progress(progress)
             
-            progress = int((i-1) / total_regions * 100)
-            progress_bar.progress(progress)
+            # Save models
+            with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
+                for name, model in models.items():
+                    if name.endswith('.pkl'):
+                        with zipf.open(name, 'w') as f:
+                            pickle.dump(model, f)
+                    elif name.endswith('.json'):
+                        with zipf.open(name, 'w') as f:
+                            f.write(model_to_json(model).encode('utf-8'))
             
-            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            
-            # Handle NeuralProphet training carefully
-            neuralprophet_model = train_neuralprophet(data)
-            if neuralprophet_model is not None:
-                models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
+            progress_bar.progress(100)
+            if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
+                status_text.success("All models trained successfully!")
+                st.balloons()
             else:
-                st.warning(f"NeuralProphet failed for {region}, skipping...")
+                status_text.warning("Models trained with some NeuralProphet failures")
             
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
-        
-        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-            for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
-        
-        progress_bar.progress(100)
-        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
-            status_text.success("All models trained successfully!")
-            st.balloons()
-        else:
-            status_text.warning("Models trained with some NeuralProphet failures")
-        
-    except Exception as e:
-        st.error(f"Model training failed: {str(e)}")
-    finally:
-        progress_bar.empty()
+        except Exception as e:
+            st.error(f"Model training failed: {str(e)}")
+        finally:
+            progress_bar.empty()
 
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
@@ -208,7 +270,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟 Malaria Cases Forecasting with Environmental Factors 🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
