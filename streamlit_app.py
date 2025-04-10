@@ -125,20 +125,20 @@ def train_neuralprophet(data, region):
             daily_seasonality=False,
             epochs=100,
             learning_rate=0.001,
-            impute_missing=True,
-            impute_linear=10,
-            impute_rolling=10,
-            drop_missing=False,
-            normalize="soft",
+            impute_missing=True,            # Enable automatic imputation
+            impute_linear=10,               # Linear interpolation for gaps up to 10 steps
+            impute_rolling=10,             # Rolling average for larger gaps
+            drop_missing=False,             # Don't drop rows with missing values
+            normalize="soft",               # Handle varying scales
             trainer_config={
                 'accelerator': 'cpu',
                 'progress_bar': True
             }
         )
         
-        # Add regressors with their own imputation
-        model.add_future_regressor('Temperature', impute_missing=True, impute_linear=5, normalize=True)
-        model.add_future_regressor('Rainfall', impute_missing=True, impute_linear=5, normalize=True)
+        # Add regressors (removed impute_missing parameter)
+        model.add_future_regressor('Temperature', normalize=True)
+        model.add_future_regressor('Rainfall', normalize=True)
         
         # Validate data completeness
         missing_values = df.isnull().sum()
@@ -148,7 +148,7 @@ def train_neuralprophet(data, region):
         # Train with progress monitoring
         with st.spinner(f"Training NeuralProphet for {region}..."):
             try:
-                metrics = model.fit(df, freq='D', validation_df=df.sample(frac=0.2))
+                metrics = model.fit(df, freq='D')  # Removed validation split for simplicity
                 
                 # Display training results
                 st.success(f"""
@@ -161,8 +161,6 @@ def train_neuralprophet(data, region):
                 # Plot training metrics
                 fig, ax = plt.subplots(figsize=(10, 4))
                 ax.plot(metrics['MAE'], label='Training MAE')
-                if 'MAE_val' in metrics:
-                    ax.plot(metrics['MAE_val'], label='Validation MAE')
                 ax.set_title(f"{region} Training Progress")
                 ax.set_xlabel("Epoch")
                 ax.set_ylabel("MAE")
