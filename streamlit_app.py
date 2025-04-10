@@ -63,15 +63,18 @@ def train_neuralprophet(data):
     
     # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
-        n_forecasts=5,
-        n_lags=16,  # No autoregression
-        yearly_seasonality=False,
-        weekly_seasonality=False,
+        n_forecasts=30,
+        n_lags=14,
+        yearly_seasonality=True,
+        weekly_seasonality=True,
         daily_seasonality=False,
-        epochs=50,  # Reduced epochs for stability
-        batch_size=16,
+        epochs=100,
         learning_rate=0.001,
-        trend_reg=0,
+        impute_missing=True,
+        impute_linear=15,  # Increased from 10 to 15
+        impute_rolling=15,  # Increased from 10 to 15
+        drop_missing=False,
+        normalize="soft",
         trainer_config={
             'accelerator': 'cpu',
             'max_epochs': 50,
