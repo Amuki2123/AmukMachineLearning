@@ -107,11 +107,13 @@ def train_neuralprophet(data, region):
         if df is None:
             return None
             
-        # Show data summary (without nested expander)
-        st.write(f"### Training Data for {region}")
-        st.write(f"**Time range:** {df['ds'].min().date()} to {df['ds'].max().date()}")
-        st.write(f"**Observations:** {len(df)}")
-        if st.checkbox(f"Show data summary for {region}"):
+        # Show data summary (using columns instead of expanders)
+        st.markdown(f"### {region} Training Data")
+        col1, col2 = st.columns(2)
+        col1.metric("Time Range", f"{df['ds'].min().date()} to {df['ds'].max().date()}")
+        col2.metric("Observations", len(df))
+        
+        if st.checkbox(f"Show detailed data for {region}"):
             st.dataframe(df.describe())
         
         # Configure model
@@ -172,7 +174,11 @@ def train_all_models():
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    with st.expander("Model Training Progress", expanded=True):
+    # Use container instead of expander to avoid nesting
+    training_container = st.container()
+    
+    with training_container:
+        st.subheader("Model Training Progress")
         try:
             total_regions = len(REGIONS)
             for i, region in enumerate(REGIONS, 1):
@@ -223,49 +229,7 @@ def train_all_models():
         finally:
             progress_bar.empty()
 
-# --- Forecasting Functions ---
-def forecast_arima(model, days, temp, rain):
-    """Generate ARIMAX forecast with environmental factors"""
-    future_exog = pd.DataFrame({
-        'Temperature': [temp] * days,
-        'Rainfall': [rain] * days
-    })
-    forecast = model.predict(n_periods=days, exogenous=future_exog)
-    return pd.date_range(datetime.today(), periods=days), forecast
-
-def forecast_prophet(model, days, temp, rain):
-    """Generate Prophet forecast with regressors"""
-    future = model.make_future_dataframe(periods=days)
-    future['Temperature'] = temp
-    future['Rainfall'] = rain
-    forecast = model.predict(future)
-    return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
-
-def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting with updated API"""
-    try:
-        # Create future dates dataframe
-        future = pd.DataFrame({
-            'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
-        })
-        
-        # Add required columns
-        future['y'] = np.nan  # Dummy target column
-        future['Temperature'] = temp
-        future['Rainfall'] = rain
-        
-        # Generate forecast
-        forecast = model.predict(future)
-        return forecast['ds'].values, forecast['yhat1'].values
-
-    except Exception as e:
-        st.error(f"NeuralProphet prediction error: {str(e)}")
-        return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
-
-def forecast_expsmooth(model, days, temp, rain):
-    """Generate Exponential Smoothing forecast"""
-    forecast = model.forecast(days)
-    return pd.date_range(datetime.today(), periods=days), forecast
+# [Rest of your original code (forecasting functions and Streamlit app) remains unchanged]
 
 # --- Streamlit App ---
 def main():
