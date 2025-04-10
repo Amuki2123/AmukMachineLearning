@@ -70,7 +70,7 @@ def train_neuralprophet(data):
         daily_seasonality=False,
         epochs=50,  # Reduced epochs for stability
         batch_size=16,
-        learning_rate=0.01,
+        learning_rate=0.001,
         trend_reg=0,
         trainer_config={
             'accelerator': 'cpu',
