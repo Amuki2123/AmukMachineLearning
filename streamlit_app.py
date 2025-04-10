@@ -14,9 +14,8 @@ import pmdarima as pm
 from prophet.serialize import model_to_json, model_from_json
 import warnings
 
-# Disable problematic warnings and watchers
+# Disable problematic warnings
 warnings.filterwarnings("ignore")
-st.set_option('deprecation.showPyplotGlobalUse', False)
 
 # --- Constants ---
 DATA_FILE = "malaria_data_upd.csv"
@@ -376,7 +375,4 @@ def main():
             st.error(f"Forecast failed: {str(e)}")
 
 if __name__ == "__main__":
-    # Disable problematic watchers
-    os.environ['STREAMLIT_SERVER_ENABLE_STATIC_FILE_WATCHER'] = 'false'
-    os.environ['STREAMLIT_SERVER_ENABLE_WEB_SOCKET_COMPRESSION'] = 'false'
     main()
