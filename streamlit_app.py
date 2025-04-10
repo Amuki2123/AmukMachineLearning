@@ -107,7 +107,7 @@ def train_neuralprophet(data, region):
         if df is None:
             return None
             
-        # Show data summary (using columns instead of expanders)
+        # Show data summary
         st.markdown(f"### {region} Training Data")
         col1, col2 = st.columns(2)
         col1.metric("Time Range", f"{df['ds'].min().date()} to {df['ds'].max().date()}")
@@ -116,7 +116,7 @@ def train_neuralprophet(data, region):
         if st.checkbox(f"Show detailed data for {region}"):
             st.dataframe(df.describe())
         
-        # Configure model
+        # Configure model with robust missing value handling
         model = NeuralProphet(
             n_forecasts=30,
             n_lags=14,
@@ -126,24 +126,72 @@ def train_neuralprophet(data, region):
             epochs=100,
             learning_rate=0.001,
             impute_missing=True,
-            impute_linear=5,
-            trainer_config={'accelerator': 'cpu'}
+            impute_linear=10,
+            impute_rolling=10,
+            drop_missing=False,
+            normalize="soft",
+            trainer_config={
+                'accelerator': 'cpu',
+                'progress_bar': True
+            }
         )
-        model.add_future_regressor('Temperature')
-        model.add_future_regressor('Rainfall')
         
-        # Train with progress
+        # Add regressors with their own imputation
+        model.add_future_regressor('Temperature', impute_missing=True, impute_linear=5, normalize=True)
+        model.add_future_regressor('Rainfall', impute_missing=True, impute_linear=5, normalize=True)
+        
+        # Validate data completeness
+        missing_values = df.isnull().sum()
+        if missing_values.any():
+            st.warning(f"Found {missing_values.sum()} missing values in {region} data. NeuralProphet will impute them.")
+        
+        # Train with progress monitoring
         with st.spinner(f"Training NeuralProphet for {region}..."):
-            metrics = model.fit(df, freq='D')
-            st.success(f"""
-                **{region} trained successfully!**  
-                - Final MAE: {metrics['MAE'].iloc[-1]:.2f}  
-                - Training time: {metrics['train_time']:.1f} seconds
-            """)
-            return model
+            try:
+                metrics = model.fit(df, freq='D', validation_df=df.sample(frac=0.2))
+                
+                # Display training results
+                st.success(f"""
+                    **{region} trained successfully!**  
+                    - Final Loss: {metrics['Loss'].iloc[-1]:.2f}
+                    - Final MAE: {metrics['MAE'].iloc[-1]:.2f}  
+                    - Training time: {metrics['train_time'].sum():.1f} seconds
+                """)
+                
+                # Plot training metrics
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(metrics['MAE'], label='Training MAE')
+                if 'MAE_val' in metrics:
+                    ax.plot(metrics['MAE_val'], label='Validation MAE')
+                ax.set_title(f"{region} Training Progress")
+                ax.set_xlabel("Epoch")
+                ax.set_ylabel("MAE")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+                
+                return model
+                
+            except Exception as e:
+                st.error(f"Training failed for {region}: {str(e)}")
+                # Attempt fallback with simpler configuration
+                try:
+                    st.warning("Attempting fallback training with simplified configuration...")
+                    simple_model = NeuralProphet(
+                        n_forecasts=30,
+                        epochs=50,
+                        impute_missing=True,
+                        drop_missing=True
+                    )
+                    simple_model.fit(df, freq='D')
+                    st.success("Fallback training succeeded with reduced features")
+                    return simple_model
+                except Exception as fallback_error:
+                    st.error(f"Fallback training also failed: {str(fallback_error)}")
+                    return None
             
     except Exception as e:
-        st.error(f"NeuralProphet training failed for {region}: {str(e)}")
+        st.error(f"NeuralProphet initialization failed for {region}: {str(e)}")
         return None
 
 def train_exponential_smoothing(data):
