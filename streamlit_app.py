@@ -56,22 +56,19 @@ def train_prophet(data):
     model.fit(df)
     return model
 
-def train_neuralprophet(data, forecast_horizon=5):
-    """Train NeuralProphet with stability fixes and multiple forecasts"""
+def train_neuralprophet(data):
+    """Train NeuralProphet with stability fixes"""
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
-    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
+    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
-    # Robust missing value handling
-    df = df.interpolate().ffill().bfill()
-    
-    # NeuralProphet configuration for multiple forecasts
+    # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
-        n_forecasts=forecast_horizon,
-        n_lags=14,
+        n_forecasts=1,
+        n_lags=0,  # No autoregression
         yearly_seasonality=False,
         weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=50,
+        epochs=50,  # Reduced epochs for stability
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
@@ -86,13 +83,13 @@ def train_neuralprophet(data, forecast_horizon=5):
     model.add_future_regressor('Rainfall')
     
     # Train with progress feedback
-    with st.spinner(f"Training NeuralProphet for {forecast_horizon} forecasts..."):
+    with st.spinner("Training NeuralProphet (this may take a minute)..."):
         try:
             metrics = model.fit(df, freq='D', progress='bar')
-            return model
         except Exception as e:
             st.error(f"Training error: {str(e)}")
             return None
+    return model
 
 def train_exponential_smoothing(data):
     """Train Exponential Smoothing with robust seasonal handling"""
@@ -134,8 +131,8 @@ def train_all_models():
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             
-            # NeuralProphet with 5-day forecast horizon
-            neuralprophet_model = train_neuralprophet(data, forecast_horizon=5)
+            # Handle NeuralProphet training carefully
+            neuralprophet_model = train_neuralprophet(data)
             if neuralprophet_model is not None:
                 models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
             else:
@@ -183,26 +180,22 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Generate NeuralProphet forecast with proper future regressors"""
+    """Robust NeuralProphet forecasting with updated API"""
     try:
-        # Create future dataframe with all required columns
-        future = model.make_future_dataframe(
-            periods=days,
-            regressors_df=pd.DataFrame({
-                'Temperature': [temp] * days,
-                'Rainfall': [rain] * days
-            })
-        )
+        # Create future dates dataframe
+        future = pd.DataFrame({
+            'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
+        })
+        
+        # Add required columns
+        future['y'] = np.nan  # Dummy target column
+        future['Temperature'] = temp
+        future['Rainfall'] = rain
         
         # Generate forecast
         forecast = model.predict(future)
-        
-        # Get all forecast steps (yhat1, yhat2, etc.)
-        forecast_cols = [f'yhat{i+1}' for i in range(model.n_forecasts)]
-        forecast_values = forecast[forecast_cols].values.flatten()[:days]
-        
-        return forecast['ds'].values[:days], forecast_values
-        
+        return forecast['ds'].values, forecast['yhat1'].values
+
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
@@ -215,7 +208,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors 🦟🦟")
+    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
