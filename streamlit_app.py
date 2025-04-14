@@ -63,7 +63,7 @@ def train_neuralprophet(data):
     
     # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
-        n_forecasts=5,
+        n_forecasts=2,
         n_lags=14,  # No autoregression
         yearly_seasonality=False,
         weekly_seasonality=False,
