@@ -56,19 +56,23 @@ def train_prophet(data):
     model.fit(df)
     return model
 
-def train_neuralprophet(data):
-    """Train NeuralProphet with stability fixes"""
+def train_neuralprophet(data, forecast_horizon=5):
+    """Train NeuralProphet for multiple forecasts"""
+    # Data Preparation
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
-    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
+    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     
-    # NeuralProphet configuration with reduced complexity
+    # Handle missing values properly
+    df = df.interpolate().ffill().bfill()  # Fill gaps
+    
+    # NeuralProphet Configuration
     model = NeuralProphet(
-        n_forecasts=2,
-        n_lags=14,  # No autoregression
+        n_forecasts=forecast_horizon,  # <<< Key change for multiple forecasts
+        n_lags=14,
         yearly_seasonality=False,
         weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=50,  # Reduced epochs for stability
+        epochs=50,
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
@@ -79,15 +83,17 @@ def train_neuralprophet(data):
         }
     )
     
+    # Add regressors
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
     
-    # Train with progress feedback
-    with st.spinner("Training NeuralProphet (this may take a minute)..."):
+    # Training
+    with st.spinner(f"Training for {forecast_horizon} forecasts..."):
         try:
             metrics = model.fit(df, freq='D', progress='bar')
+            return model
         except Exception as e:
-            st.error(f"Training error: {str(e)}")
+            st.error(f"Training failed: {str(e)}")
             return None
     return model
 
