@@ -43,7 +43,7 @@ def prepare_region_data(df, region):
     )
     region_df = region_df.reindex(full_date_range)
     
-    return region_df
+    return region_df[['Cases', 'Temperature', 'Rainfall']]
 
 def check_data_quality(df, region):
     """Verify data quality before training"""
@@ -111,8 +111,8 @@ def train_neuralprophet(data, forecast_horizon=5):
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
-        impute_missing=True,  # Explicitly enable imputation
-        drop_missing=True,    # Drop any remaining missing values
+        impute_missing=True,
+        drop_missing=True,
         trainer_config={
             'accelerator': 'cpu',
             'max_epochs': 50,
@@ -129,7 +129,6 @@ def train_neuralprophet(data, forecast_horizon=5):
             return model
         except Exception as e:
             st.error(f"Training error: {str(e)}")
-            # Log detailed error information
             st.error(f"Data shape: {df.shape}")
             st.error(f"Missing values:\n{df.isnull().sum()}")
             st.error(f"First 5 rows:\n{df.head()}")
@@ -169,11 +168,11 @@ def train_all_models():
             status_text.text(f"Training models for {region} ({i}/{total_regions})")
             data = prepare_region_data(df, region)
             
-            # Data quality check
-            with st.expander(f"Data Quality Report for {region}", expanded=False):
-                if not check_data_quality(data, region):
-                    st.warning(f"Skipping {region} due to data quality issues")
-                    continue
+            # Data quality check - now as a section instead of expander
+            st.subheader(f"Data Quality Report for {region}")
+            if not check_data_quality(data, region):
+                st.warning(f"Skipping {region} due to data quality issues")
+                continue
             
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
@@ -181,7 +180,6 @@ def train_all_models():
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             
-            # NeuralProphet with 5-day forecast horizon
             neuralprophet_model = train_neuralprophet(data, forecast_horizon=5)
             if neuralprophet_model is not None:
                 models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
@@ -232,19 +230,14 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with proper future regressors"""
     try:
-        # Create future dataframe with regressors
         future = pd.DataFrame({
             'ds': pd.date_range(start=datetime.today(), periods=days)
         })
-        
-        # Add future regressors
         future['Temperature'] = temp
         future['Rainfall'] = rain
         
-        # Generate forecast
         forecast = model.predict(future)
         
-        # Get all forecast steps (yhat1, yhat2, etc.)
         forecast_dates = []
         forecast_values = []
         
@@ -269,7 +262,8 @@ def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
     st.title("🦟 Malaria Cases Forecasting with Environmental Factors 🦟")
     
-    # File Upload Section
+    # File Upload Section (standalone expander)
+    st.header("Data Management")
     with st.expander("📤 Update Data File", expanded=False):
         st.write("Upload updated malaria data (CSV format with Date, Region, Cases, Temperature, Rainfall columns)")
         uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
@@ -286,13 +280,14 @@ def main():
             except Exception as e:
                 st.error(f"Error processing file: {str(e)}")
     
-    # Model Training Section
-    with st.expander("⚙️ Model Training", expanded=False):
+    # Model Training Section (standalone expander)
+    st.header("Model Training")
+    with st.expander("⚙️ Model Training Options", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
-    # Forecasting Interface
-    st.header("Forecast Malaria Cases")
+    # Forecasting Interface (no expander)
+    st.header("Generate Forecasts")
     col1, col2 = st.columns(2)
     
     with col1:
@@ -311,7 +306,6 @@ def main():
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                # Correct model filename pattern
                 if model_type == "Exponential Smoothing":
                     model_file = f"{region.lower()}_expsmooth_model.pkl"
                 elif model_type == "Prophet":
@@ -319,7 +313,6 @@ def main():
                 else:
                     model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
                 
-                # Skip if NeuralProphet failed during training
                 if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
                     st.error("NeuralProphet model not available for this region (training failed)")
                     return
@@ -343,7 +336,6 @@ def main():
                 elif model_type == "Exponential Smoothing":
                     dates, values = forecast_expsmooth(model, days, temp, rain)
                 
-                # Handle different return types from models
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
                     'Cases': np.round(values).astype(int),
@@ -351,7 +343,6 @@ def main():
                     'Rainfall': rain
                 })
                 
-                # Visualization
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
                 ax.set_title(
@@ -364,7 +355,6 @@ def main():
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 
-                # Data Export
                 csv = forecast_df.to_csv(index=False)
                 st.download_button(
                     "📥 Download Forecast",
