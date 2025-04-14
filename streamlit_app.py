@@ -43,7 +43,7 @@ def prepare_region_data(df, region):
     )
     region_df = region_df.reindex(full_date_range)
     
-    return region_df[['Cases', 'Temperature', 'Rainfall']]
+    return region_df
 
 def check_data_quality(df, region):
     """Verify data quality before training"""
