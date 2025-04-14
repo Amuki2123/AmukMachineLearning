@@ -232,23 +232,28 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with proper future regressors"""
     try:
-        # Create future dataframe with all required columns
-        future = model.make_future_dataframe(
-            periods=days,
-            regressors_df=pd.DataFrame({
-                'Temperature': [temp] * days,
-                'Rainfall': [rain] * days
-            })
-        )
+        # Create future dataframe with regressors
+        future = pd.DataFrame({
+            'ds': pd.date_range(start=datetime.today(), periods=days)
+        })
+        
+        # Add future regressors
+        future['Temperature'] = temp
+        future['Rainfall'] = rain
         
         # Generate forecast
         forecast = model.predict(future)
         
         # Get all forecast steps (yhat1, yhat2, etc.)
-        forecast_cols = [f'yhat{i+1}' for i in range(model.n_forecasts)]
-        forecast_values = forecast[forecast_cols].values.flatten()[:days]
+        forecast_dates = []
+        forecast_values = []
         
-        return forecast['ds'].values[:days], forecast_values
+        for i in range(days):
+            if i < len(forecast):
+                forecast_dates.append(forecast.iloc[i]['ds'])
+                forecast_values.append(forecast.iloc[i]['yhat1'])
+        
+        return np.array(forecast_dates), np.array(forecast_values)
         
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
