@@ -63,18 +63,15 @@ def train_neuralprophet(data):
     
     # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
-        n_forecasts=30,
-        n_lags=14,
-        yearly_seasonality=True,
-        weekly_seasonality=True,
+        n_forecasts=5,
+        n_lags=14,  # No autoregression
+        yearly_seasonality=False,
+        weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=100,
-        learning_rate=0.001,
-        impute_missing=True,
-        impute_linear=15,  # Increased from 10 to 15
-        impute_rolling=15,  # Increased from 10 to 15
-        drop_missing=False,
-        normalize="soft",
+        epochs=50,  # Reduced epochs for stability
+        batch_size=16,
+        learning_rate=0.01,
+        trend_reg=0,
         trainer_config={
             'accelerator': 'cpu',
             'max_epochs': 50,
@@ -211,7 +208,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟 Malaria Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -231,7 +228,7 @@ def main():
                 st.error(f"Error processing file: {str(e)}")
     
     # Model Training Section
-    with st.expander("⚙️⚙️⚙️ Model Training⚙️⚙️⚙️", expanded=False):
+    with st.expander("⚙️ Model Training", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
