@@ -18,6 +18,24 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # --- Constants ---
+import os
+import zipfile
+import pickle
+import json
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from prophet import Prophet
+from neuralprophet import NeuralProphet, set_log_level
+import pmdarima as pm
+from prophet.serialize import model_to_json, model_from_json
+import warnings
+warnings.filterwarnings("ignore")
+
+# --- Constants ---
 DATA_FILE = "malaria_data_upd.csv"
 MODEL_ZIP = "Malaria_Forecasting.zip"
 REGIONS = ["Juba", "Yei", "Wau"]
@@ -34,13 +52,15 @@ def load_data():
     return df
 
 def prepare_region_data(df, region):
-    """Prepare dataset for a specific region with proper datetime handling"""
-    # Filter and rename columns
+    """Prepare dataset with proper column names for all models"""
+    # Filter and create copy
     region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
-    region_df = region_df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     
-    # Convert to datetime and set as index
-    region_df['ds'] = pd.to_datetime(region_df['ds'])
+    # Create properly named columns (keeping originals for Prophet)
+    region_df['ds'] = pd.to_datetime(region_df['Date'])
+    region_df['y'] = region_df['Cases']
+    
+    # Set datetime index for interpolation
     region_df = region_df.set_index('ds').sort_index()
     
     # Ensure continuous dates
@@ -51,12 +71,11 @@ def prepare_region_data(df, region):
     )
     region_df = region_df.reindex(full_date_range)
     
-    # Handle missing values with time-based interpolation
+    # Handle missing values
     for col in ['y', 'Temperature', 'Rainfall']:
-        if region_df[col].isnull().any():
-            region_df[col] = region_df[col].interpolate(method='time').ffill().bfill()
+        region_df[col] = region_df[col].interpolate(method='time').ffill().bfill()
     
-    return region_df.reset_index()  # Return with ds as a column
+    return region_df.reset_index()
 
 def check_data_quality(df, region):
     """Verify data quality before training"""
@@ -93,8 +112,9 @@ def train_arima(data):
 
 def train_prophet(data):
     """Train Prophet model with regressors"""
-    df = data.rename(columns={'y': 'Cases'})  # Prophet expects different column names
-    df = df[['ds', 'Cases', 'Temperature', 'Rainfall']]
+    # Prophet expects original column names
+    df = data.rename(columns={'ds': 'Date', 'y': 'Cases'})[['Date', 'Cases', 'Temperature', 'Rainfall']]
+    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     model = Prophet()
     model.add_regressor('Temperature')
     model.add_regressor('Rainfall')
@@ -102,22 +122,19 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data, forecast_horizon=5):
-    """Train NeuralProphet with proper datetime handling"""
+    """Train NeuralProphet with validated columns"""
     set_log_level("ERROR")
     
-    # Ensure proper datetime format
-    data['ds'] = pd.to_datetime(data['ds'])
-    
-    # Verify required columns
-    REQUIRED_COLS = {'ds', 'y'}
-    if not REQUIRED_COLS.issubset(data.columns):
-        missing = REQUIRED_COLS - set(data.columns)
+    # Validate columns
+    required_cols = {'ds', 'y'}
+    if not required_cols.issubset(data.columns):
+        missing = required_cols - set(data.columns)
         st.error(f"Missing required columns: {missing}")
-        st.error(f"Current columns: {list(data.columns)}")
+        st.error(f"Available columns: {list(data.columns)}")
         return None
     
-    # Final cleaning
-    df = data.dropna(subset=['ds', 'y']).copy()
+    # Ensure proper datetime
+    data['ds'] = pd.to_datetime(data['ds'])
     
     # Model configuration
     model = NeuralProphet(
@@ -135,15 +152,13 @@ def train_neuralprophet(data, forecast_horizon=5):
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
     
-    # Train model
+    # Train
     with st.spinner("Training NeuralProphet..."):
         try:
-            metrics = model.fit(df, freq='D')
+            metrics = model.fit(data, freq='D')
             return model
         except Exception as e:
             st.error(f"Training failed: {str(e)}")
-            st.error("Problematic data sample:")
-            st.write(df.head())
             return None
 
 def train_exponential_smoothing(data):
@@ -160,6 +175,8 @@ def train_exponential_smoothing(data):
             data['y'],
             trend='add',
         ).fit()
+
+# [Rest of the code remains unchanged...]
 
 # --- Model Training Interface ---
 def train_all_models():
