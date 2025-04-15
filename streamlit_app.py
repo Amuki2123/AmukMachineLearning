@@ -1,6 +1,5 @@
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Add this line
-import os
 import zipfile
 import pickle
 import json
@@ -34,9 +33,9 @@ def load_data():
     return df
 
 def prepare_region_data(df, region):
-    """Prepare dataset for a specific region with proper column names for NeuralProphet"""
-    region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']]
-    region_df = region_df.rename(columns={'Date': 'ds', 'Cases': 'y'})  # Critical rename
+    """Prepare dataset for a specific region with proper column names"""
+    region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
+    region_df = region_df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     
     # Ensure continuous dates
     full_date_range = pd.date_range(
@@ -87,10 +86,12 @@ def train_arima(data):
 
 def train_prophet(data):
     """Train Prophet model with regressors"""
+    df = data.rename(columns={'y': 'Cases'})  # Prophet expects different column names
+    df = df[['ds', 'Cases', 'Temperature', 'Rainfall']]
     model = Prophet()
     model.add_regressor('Temperature')
     model.add_regressor('Rainfall')
-    model.fit(data)
+    model.fit(df)
     return model
 
 def train_neuralprophet(data, forecast_horizon=5):
@@ -98,17 +99,15 @@ def train_neuralprophet(data, forecast_horizon=5):
     set_log_level("ERROR")
     
     # Verify required columns
-    REQUIRED_COLS = {'ds', 'y'}
-    if not REQUIRED_COLS.issubset(data.columns):
-        missing = REQUIRED_COLS - set(data.columns)
-        st.error(f"Missing required columns: {missing}")
-        st.error(f"Current columns: {list(data.columns)}")
+    if not {'ds', 'y'}.issubset(data.columns):
+        st.error("Dataframe must contain 'ds' and 'y' columns")
+        st.error(f"Current columns: {data.columns.tolist()}")
         return None
     
     # Final cleaning
     df = data.copy().dropna(subset=['ds', 'y'])
     
-    # Model config
+    # Model configuration
     model = NeuralProphet(
         n_forecasts=forecast_horizon,
         n_lags=14,
@@ -116,26 +115,25 @@ def train_neuralprophet(data, forecast_horizon=5):
         weekly_seasonality=False,
         daily_seasonality=False,
         epochs=50,
-        impute_missing=True
+        impute_missing=True,
+        normalize="soft"
     )
     
     # Add regressors
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
     
-    # Train
+    # Train model
     with st.spinner("Training NeuralProphet..."):
         try:
             metrics = model.fit(df, freq='D')
             return model
         except Exception as e:
             st.error(f"Training failed: {str(e)}")
-            st.error("Problematic data sample:")
-            st.write(df.head())
             return None
 
 def train_exponential_smoothing(data):
-    """Train Exponential Smoothing"""
+    """Train Exponential Smoothing model"""
     try:
         return ExponentialSmoothing(
             data['y'],
@@ -175,10 +173,7 @@ def train_all_models():
             
             # Train models
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            
-            # Prophet needs renamed columns too
-            prophet_data = data.rename(columns={'y': 'Cases'})  # Prophet expects 'y'
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(prophet_data)
+            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             
             neural_model = train_neuralprophet(data)
             if neural_model:
@@ -188,7 +183,7 @@ def train_all_models():
             
             progress_bar.progress(int(i/len(REGIONS)*100)
         
-        # Save models
+        # Save models to zip file
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
                 if name.endswith('.pkl'):
@@ -198,20 +193,17 @@ def train_all_models():
                     with zipf.open(name, 'w') as f:
                         f.write(model_to_json(model).encode('utf-8'))
         
-        progress_bar.progress(100)
-        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
-            status_text.success("All models trained successfully!")
-            st.balloons()
-        else:
-            status_text.warning("Models trained with some NeuralProphet failures")
+        status_text.success("All models trained successfully!")
+        st.balloons()
     
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
     finally:
         progress_bar.empty()
+
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
-    """Generate ARIMAX forecast with environmental factors"""
+    """Generate ARIMAX forecast"""
     future_exog = pd.DataFrame({
         'Temperature': [temp] * days,
         'Rainfall': [rain] * days
@@ -220,7 +212,7 @@ def forecast_arima(model, days, temp, rain):
     return pd.date_range(datetime.today(), periods=days), forecast
 
 def forecast_prophet(model, days, temp, rain):
-    """Generate Prophet forecast with regressors"""
+    """Generate Prophet forecast"""
     future = model.make_future_dataframe(periods=days)
     future['Temperature'] = temp
     future['Rainfall'] = rain
@@ -228,9 +220,8 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Generate NeuralProphet forecast with proper future regressors"""
+    """Generate NeuralProphet forecast"""
     try:
-        # Create future dataframe with proper regressors
         future = model.make_future_dataframe(
             periods=days,
             regressors_df=pd.DataFrame({
@@ -239,19 +230,10 @@ def forecast_neuralprophet(model, days, temp, rain):
                 'Rainfall': [rain] * days
             })
         )
-        
         forecast = model.predict(future)
-        
-        # Handle potential missing forecasts
-        forecast = forecast.ffill().bfill()
-        
-        forecast_dates = forecast['ds'].values[-days:]
-        forecast_values = forecast['yhat1'].values[-days:]
-        
-        return forecast_dates, forecast_values
-        
+        return forecast['ds'].values[-days:], forecast['yhat1'].values[-days:]
     except Exception as e:
-        st.error(f"NeuralProphet prediction error: {str(e)}")
+        st.error(f"Prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
 
 def forecast_expsmooth(model, days, temp, rain):
@@ -267,76 +249,58 @@ def main():
     # File Upload Section
     st.header("Data Management")
     with st.expander("📤 Update Data File", expanded=False):
-        st.write("Upload updated malaria data (CSV format with Date, Region, Cases, Temperature, Rainfall columns)")
-        uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
+        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
         if uploaded_file is not None:
             try:
                 df = pd.read_csv(uploaded_file)
-                required_columns = ['Date', 'Region', 'Cases', 'Temperature', 'Rainfall']
-                if not all(col in df.columns for col in required_columns):
-                    st.error(f"CSV file must contain these columns: {', '.join(required_columns)}")
-                else:
+                required_cols = ['Date', 'Region', 'Cases', 'Temperature', 'Rainfall']
+                if all(col in df.columns for col in required_cols):
                     df.to_csv(DATA_FILE, index=False)
-                    st.success("✅ File uploaded and saved successfully!")
+                    st.success("File uploaded successfully!")
                     st.cache_data.clear()
+                else:
+                    st.error(f"Missing required columns: {set(required_cols)-set(df.columns)}")
             except Exception as e:
-                st.error(f"Error processing file: {str(e)}")
+                st.error(f"Error: {str(e)}")
     
-    # Model Training Section
+    # Model Training
     st.header("Model Training")
-    with st.expander("⚙️ Model Training Options", expanded=False):
-        if st.button("Train All Models"):
-            train_all_models()
+    if st.button("Train All Models"):
+        train_all_models()
     
     # Forecasting Interface
     st.header("Generate Forecasts")
     col1, col2 = st.columns(2)
-    
     with col1:
-        region = st.selectbox("Select Region", REGIONS)
-        model_type = st.selectbox("Select Model", MODEL_TYPES)
-    
+        region = st.selectbox("Region", REGIONS)
+        model_type = st.selectbox("Model", MODEL_TYPES)
     with col2:
-        temp = st.slider("Temperature (°C)", 15.0, 40.0, 25.0, 0.5)
-        rain = st.slider("Rainfall (mm)", 0.0, 300.0, 50.0, 5.0)
-        days = st.slider("Forecast Days", 7, 365, 30, 1)
+        temp = st.slider("Temperature (°C)", 15.0, 40.0, 25.0)
+        rain = st.slider("Rainfall (mm)", 0.0, 300.0, 50.0)
+        days = st.slider("Forecast Days", 7, 365, 30)
     
-    if st.button("Generate Forecast", type="primary"):
+    if st.button("Generate Forecast"):
         if not os.path.exists(MODEL_ZIP):
-            st.error("Please train models first!")
+            st.error("Please train models first")
             return
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                if model_type == "Exponential Smoothing":
-                    model_file = f"{region.lower()}_expsmooth_model.pkl"
-                elif model_type == "Prophet":
-                    model_file = f"{region.lower()}_prophet_model.json"
-                else:
-                    model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
+                model_file = f"{region.lower()}_{model_type.lower().replace(' ', '_')}_model.{'json' if model_type == 'Prophet' else 'pkl'}"
                 
-                if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
-                    st.error("NeuralProphet model not available for this region (training failed)")
+                if model_file not in zipf.namelist():
+                    st.error(f"Model not found: {model_file}")
                     return
                 
-                if model_type == "Prophet":
-                    with zipf.open(model_file) as f:
-                        model = model_from_json(f.read().decode('utf-8'))
-                else:
-                    with zipf.open(model_file) as f:
-                        model = pickle.load(f)
-            
-            st.success(f"{model_type} model loaded for {region}!")
-            
-            with st.spinner("Generating forecast..."):
-                if model_type == "ARIMA":
-                    dates, values = forecast_arima(model, days, temp, rain)
-                elif model_type == "Prophet":
-                    dates, values = forecast_prophet(model, days, temp, rain)
-                elif model_type == "NeuralProphet":
-                    dates, values = forecast_neuralprophet(model, days, temp, rain)
-                elif model_type == "Exponential Smoothing":
-                    dates, values = forecast_expsmooth(model, days, temp, rain)
+                with zipf.open(model_file) as f:
+                    model = model_from_json(f.read().decode('utf-8')) if model_type == 'Prophet' else pickle.load(f)
+                
+                dates, values = {
+                    'ARIMA': forecast_arima,
+                    'Prophet': forecast_prophet,
+                    'NeuralProphet': forecast_neuralprophet,
+                    'Exponential Smoothing': forecast_expsmooth
+                }[model_type](model, days, temp, rain)
                 
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
@@ -346,27 +310,19 @@ def main():
                 })
                 
                 fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
-                ax.set_title(
-                    f"{region} {model_type} Forecast\n"
-                    f"Temperature: {temp}°C, Rainfall: {rain}mm",
-                    pad=20
-                )
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Cases")
-                ax.grid(True, alpha=0.3)
+                ax.plot(forecast_df['Date'], forecast_df['Cases'])
+                ax.set_title(f"{region} {model_type} Forecast")
                 st.pyplot(fig)
                 
-                csv = forecast_df.to_csv(index=False)
                 st.download_button(
-                    "📥 Download Forecast",
-                    data=csv,
-                    file_name=f"{region}_forecast.csv",
-                    mime="text/csv"
+                    "Download Forecast",
+                    forecast_df.to_csv(index=False),
+                    f"{region}_forecast.csv",
+                    "text/csv"
                 )
-        
+                
         except Exception as e:
-            st.error(f"Forecast failed: {str(e)}")
+            st.error(f"Forecasting failed: {str(e)}")
 
 if __name__ == "__main__":
     main()
