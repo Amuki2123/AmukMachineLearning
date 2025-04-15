@@ -34,23 +34,23 @@ def load_data():
     return df
 
 def prepare_region_data(df, region):
-    """Prepare dataset for a specific region with continuous dates"""
-    region_df = df[df['Region'] == region].set_index('Date').sort_index()
+    """Prepare dataset for a specific region with proper column names for NeuralProphet"""
+    region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']]
+    region_df = region_df.rename(columns={'Date': 'ds', 'Cases': 'y'})  # Critical rename
     
-    # Ensure continuous daily data
+    # Ensure continuous dates
     full_date_range = pd.date_range(
-        start=region_df.index.min(), 
-        end=region_df.index.max(), 
+        start=region_df['ds'].min(),
+        end=region_df['ds'].max(),
         freq='D'
     )
-    region_df = region_df.reindex(full_date_range)
+    region_df = region_df.set_index('ds').reindex(full_date_range).reset_index()
     
-    # Interpolate missing values
-    region_df['Cases'] = region_df['Cases'].interpolate(method='time').ffill().bfill()
-    region_df['Temperature'] = region_df['Temperature'].interpolate(method='linear').ffill().bfill()
-    region_df['Rainfall'] = region_df['Rainfall'].interpolate(method='linear').ffill().bfill()
+    # Handle missing values
+    for col in ['y', 'Temperature', 'Rainfall']:
+        region_df[col] = region_df[col].interpolate(method='time').ffill().bfill()
     
-    return region_df[['Cases', 'Temperature', 'Rainfall']]
+    return region_df
 
 def check_data_quality(df, region):
     """Verify data quality before training"""
@@ -66,7 +66,7 @@ def check_data_quality(df, region):
         st.write(df.describe())
     
     fig, ax = plt.subplots(3, 1, figsize=(12, 8))
-    df['Cases'].plot(ax=ax[0], title='Cases')
+    df['y'].plot(ax=ax[0], title='Cases')
     df['Temperature'].plot(ax=ax[1], title='Temperature')
     df['Rainfall'].plot(ax=ax[2], title='Rainfall')
     plt.tight_layout()
@@ -78,7 +78,7 @@ def check_data_quality(df, region):
 def train_arima(data):
     """Train ARIMAX model with environmental factors"""
     return pm.auto_arima(
-        data['Cases'],
+        data['y'],
         exogenous=data[['Temperature', 'Rainfall']],
         seasonal=False,
         stepwise=True,
@@ -87,43 +87,28 @@ def train_arima(data):
 
 def train_prophet(data):
     """Train Prophet model with regressors"""
-    df = data.reset_index().rename(columns={'Date': 'ds', 'Cases': 'y'})
     model = Prophet()
     model.add_regressor('Temperature')
     model.add_regressor('Rainfall')
-    model.fit(df)
+    model.fit(data)
     return model
 
 def train_neuralprophet(data, forecast_horizon=5):
-    """Train NeuralProphet with proper column naming and data handling"""
-    # Reduce logging verbosity
+    """Train NeuralProphet with strict column requirements"""
     set_log_level("ERROR")
     
-    # Prepare dataframe with EXACTLY required column names
-    df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
-    df = df.rename(columns={
-        'Date': 'ds',  # MUST be 'ds' for dates
-        'Cases': 'y',   # MUST be 'y' for values
-        'Temperature': 'Temperature',
-        'Rainfall': 'Rainfall'
-    })
-    
-    # Verify required columns exist
-    if not {'ds', 'y'}.issubset(df.columns):
-        missing = {'ds', 'y'} - set(df.columns)
+    # Verify required columns
+    REQUIRED_COLS = {'ds', 'y'}
+    if not REQUIRED_COLS.issubset(data.columns):
+        missing = REQUIRED_COLS - set(data.columns)
         st.error(f"Missing required columns: {missing}")
-        st.error(f"Available columns: {df.columns.tolist()}")
+        st.error(f"Current columns: {list(data.columns)}")
         return None
     
-    # Enhanced missing value handling
-    df = df.interpolate(method='time').ffill().bfill()
+    # Final cleaning
+    df = data.copy().dropna(subset=['ds', 'y'])
     
-    # Final check for missing values
-    if df.isnull().values.any():
-        st.warning(f"Missing values after imputation: {df.isnull().sum().to_dict()}")
-        df = df.dropna()
-    
-    # Configure NeuralProphet with robust settings
+    # Model config
     model = NeuralProphet(
         n_forecasts=forecast_horizon,
         n_lags=14,
@@ -131,45 +116,36 @@ def train_neuralprophet(data, forecast_horizon=5):
         weekly_seasonality=False,
         daily_seasonality=False,
         epochs=50,
-        batch_size=16,
-        learning_rate=0.01,
-        trend_reg=0.5,
-        impute_missing=True,
-        drop_missing=True,
-        normalize="soft"
+        impute_missing=True
     )
     
-    # Add regressors with proper normalization
-    model.add_future_regressor('Temperature', normalize=True)
-    model.add_future_regressor('Rainfall', normalize=True)
+    # Add regressors
+    model.add_future_regressor('Temperature')
+    model.add_future_regressor('Rainfall')
     
-    with st.spinner(f"Training NeuralProphet for {forecast_horizon} forecasts..."):
+    # Train
+    with st.spinner("Training NeuralProphet..."):
         try:
-            # Debug output
-            st.write("Sample training data (first 5 rows):")
-            st.write(df.head())
-            
-            # Train model
-            metrics = model.fit(df, freq='D', progress='bar')
+            metrics = model.fit(df, freq='D')
             return model
         except Exception as e:
-            st.error(f"NeuralProphet training failed: {str(e)}")
-            st.error("Data sample that caused the error:")
+            st.error(f"Training failed: {str(e)}")
+            st.error("Problematic data sample:")
             st.write(df.head())
             return None
 
 def train_exponential_smoothing(data):
-    """Train Exponential Smoothing with robust seasonal handling"""
+    """Train Exponential Smoothing"""
     try:
         return ExponentialSmoothing(
-            data['Cases'],
+            data['y'],
             trend='add',
             seasonal=None,
         ).fit()
     except Exception as e:
-        st.warning(f"Using simpler Exponential Smoothing: {str(e)}")
+        st.warning(f"Using simpler model: {str(e)}")
         return ExponentialSmoothing(
-            data['Cases'],
+            data['y'],
             trend='add',
         ).fit()
 
@@ -187,9 +163,8 @@ def train_all_models():
     status_text = st.empty()
     
     try:
-        total_regions = len(REGIONS)
         for i, region in enumerate(REGIONS, 1):
-            status_text.text(f"Training models for {region} ({i}/{total_regions})")
+            status_text.text(f"Training models for {region} ({i}/{len(REGIONS)})")
             data = prepare_region_data(df, region)
             
             # Data quality check
@@ -198,20 +173,22 @@ def train_all_models():
                 st.warning(f"Skipping {region} due to data quality issues")
                 continue
             
-            progress = int((i-1) / total_regions * 100)
-            progress_bar.progress(progress)
-            
+            # Train models
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
             
-            neuralprophet_model = train_neuralprophet(data, forecast_horizon=5)
-            if neuralprophet_model is not None:
-                models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
-            else:
-                st.warning(f"NeuralProphet failed for {region}, skipping...")
+            # Prophet needs renamed columns too
+            prophet_data = data.rename(columns={'y': 'Cases'})  # Prophet expects 'y'
+            models[f"{region.lower()}_prophet_model.json"] = train_prophet(prophet_data)
+            
+            neural_model = train_neuralprophet(data)
+            if neural_model:
+                models[f"{region.lower()}_neuralprophet_model.pkl"] = neural_model
             
             models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+            
+            progress_bar.progress(int(i/len(REGIONS)*100)
         
+        # Save models
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
                 if name.endswith('.pkl'):
@@ -221,18 +198,13 @@ def train_all_models():
                     with zipf.open(name, 'w') as f:
                         f.write(model_to_json(model).encode('utf-8'))
         
-        progress_bar.progress(100)
-        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
-            status_text.success("All models trained successfully!")
-            st.balloons()
-        else:
-            status_text.warning("Models trained with some NeuralProphet failures")
-        
+        status_text.success("All models trained successfully!")
+        st.balloons()
+    
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
     finally:
         progress_bar.empty()
-
 # --- Forecasting Functions ---
 def forecast_arima(model, days, temp, rain):
     """Generate ARIMAX forecast with environmental factors"""
