@@ -97,8 +97,20 @@ def train_neuralprophet(data, forecast_horizon=5):
     # Reduce logging verbosity
     set_log_level("ERROR")
     
+    # Prepare dataframe with required column names
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
-    df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
+    df = df.rename(columns={
+        'Date': 'ds', 
+        'Cases': 'y',
+        'Temperature': 'Temperature',
+        'Rainfall': 'Rainfall'
+    })
+    
+    # Ensure we have the required columns
+    if 'ds' not in df.columns or 'y' not in df.columns:
+        st.error("Dataframe must contain 'ds' (dates) and 'y' (values) columns")
+        st.error(f"Current columns: {df.columns.tolist()}")
+        return None
     
     # Enhanced missing value handling
     df = df.interpolate(method='time').ffill().bfill()
@@ -106,9 +118,11 @@ def train_neuralprophet(data, forecast_horizon=5):
     # Verify no missing values remain
     if df.isnull().values.any():
         st.warning("Warning: Some missing values remain after imputation")
+        st.write("Missing values per column:")
+        st.write(df.isnull().sum())
         df = df.dropna()  # Final fallback
         
-    # NeuralProphet configuration with explicit missing value handling
+    # NeuralProphet configuration
     model = NeuralProphet(
         n_forecasts=forecast_horizon,
         n_lags=14,
@@ -118,10 +132,10 @@ def train_neuralprophet(data, forecast_horizon=5):
         epochs=50,
         batch_size=16,
         learning_rate=0.01,
-        trend_reg=0.5,  # Added regularization
+        trend_reg=0.5,
         impute_missing=True,
         drop_missing=True,
-        normalize="soft",  # Better for variables with different scales
+        normalize="soft",
         trainer_config={
             'accelerator': 'cpu',
             'max_epochs': 50,
@@ -129,17 +143,22 @@ def train_neuralprophet(data, forecast_horizon=5):
         }
     )
     
-    # Add regressors with proper normalization
+    # Add regressors
     model.add_future_regressor('Temperature', normalize=True)
     model.add_future_regressor('Rainfall', normalize=True)
     
     with st.spinner(f"Training NeuralProphet for {forecast_horizon} forecasts..."):
         try:
+            # Print debug info before training
+            st.write("Training data sample:")
+            st.write(df.head())
+            st.write(f"Data shape: {df.shape}")
+            
             metrics = model.fit(df, freq='D', progress='bar')
             return model
         except Exception as e:
             st.error(f"Training error: {str(e)}")
-            st.error(f"Data shape: {df.shape}")
+            st.error(f"Data columns: {df.columns.tolist()}")
             st.error(f"Missing values:\n{df.isnull().sum()}")
             st.error(f"First 5 rows:\n{df.head()}")
             return None
