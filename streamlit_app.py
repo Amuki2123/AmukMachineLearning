@@ -1,6 +1,4 @@
 import os
-os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Add this line
-import os
 import zipfile
 import pickle
 import json
@@ -38,7 +36,7 @@ def prepare_region_data(df, region):
     # Filter and create copy
     region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
     
-    # Create properly named columns (keeping originals for Prophet)
+    # Create properly named columns
     region_df['ds'] = pd.to_datetime(region_df['Date'])
     region_df['y'] = region_df['Cases']
     
@@ -94,7 +92,7 @@ def train_arima(data):
 
 def train_prophet(data):
     """Train Prophet model with regressors"""
-    # Prophet expects original column names
+    # Prophet expects specific column names
     df = data.rename(columns={'ds': 'Date', 'y': 'Cases'})[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     model = Prophet()
@@ -158,11 +156,9 @@ def train_exponential_smoothing(data):
             trend='add',
         ).fit()
 
-# [Rest of the code remains unchanged...]
-
 # --- Model Training Interface ---
 def train_all_models():
-    """Train and save all models for all regions"""
+    """Train and save all models for all regions with robust error handling"""
     try:
         df = load_data()
     except Exception as e:
@@ -184,33 +180,66 @@ def train_all_models():
                 st.warning(f"Skipping {region} due to data quality issues")
                 continue
             
-            # Train models
-            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            # Train models with individual error handling
+            try:
+                models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
+            except Exception as e:
+                st.error(f"Failed to train ARIMA for {region}: {str(e)}")
             
-            neural_model = train_neuralprophet(data)
-            if neural_model:
-                models[f"{region.lower()}_neuralprophet_model.pkl"] = neural_model
+            try:
+                models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            except Exception as e:
+                st.error(f"Failed to train Prophet for {region}: {str(e)}")
             
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+            try:
+                neural_model = train_neuralprophet(data)
+                if neural_model:
+                    models[f"{region.lower()}_neuralprophet_model.pkl"] = neural_model
+                else:
+                    st.warning(f"NeuralProphet training failed for {region}")
+            except Exception as e:
+                st.error(f"NeuralProphet training error for {region}: {str(e)}")
+            
+            try:
+                models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
+            except Exception as e:
+                st.error(f"Failed to train Exponential Smoothing for {region}: {str(e)}")
             
             progress_bar.progress(int(i/len(REGIONS)*100))
         
-        # Save models to zip file
-        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-            for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
-        
-        status_text.success("All models trained successfully!")
-        st.balloons()
+        # Save only successfully trained models
+        if models:
+            with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
+                for name, model in models.items():
+                    try:
+                        if name.endswith('.pkl'):
+                            with zipf.open(name, 'w') as f:
+                                pickle.dump(model, f)
+                        elif name.endswith('.json'):
+                            with zipf.open(name, 'w') as f:
+                                f.write(model_to_json(model).encode('utf-8'))
+                    except Exception as e:
+                        st.error(f"Failed to save {name}: {str(e)}")
+                        continue
+            
+            # Verify saved models
+            with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
+                saved_models = set(zipf.namelist())
+                for region in REGIONS:
+                    if f"{region.lower()}_neuralprophet_model.pkl" not in saved_models:
+                        st.warning(f"NeuralProphet model for {region} was not saved")
+            
+            status_text.success(f"Saved {len(models)} models successfully!")
+            st.balloons()
+        else:
+            status_text.error("No models were trained successfully")
+            if os.path.exists(MODEL_ZIP):
+                os.remove(MODEL_ZIP)
     
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
+        if os.path.exists(MODEL_ZIP):
+            os.remove(MODEL_ZIP)
     finally:
         progress_bar.empty()
 
@@ -233,7 +262,11 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Generate NeuralProphet forecast"""
+    """Generate NeuralProphet forecast with error handling"""
+    if model is None:
+        st.warning("No trained NeuralProphet model available - returning zero forecast")
+        return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
+    
     try:
         future = model.make_future_dataframe(
             periods=days,
@@ -246,7 +279,7 @@ def forecast_neuralprophet(model, days, temp, rain):
         forecast = model.predict(future)
         return forecast['ds'].values[-days:], forecast['yhat1'].values[-days:]
     except Exception as e:
-        st.error(f"Prediction error: {str(e)}")
+        st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
 
 def forecast_expsmooth(model, days, temp, rain):
@@ -303,17 +336,24 @@ def main():
                 
                 if model_file not in zipf.namelist():
                     st.error(f"Model not found: {model_file}")
+                    st.warning("This model may have failed to train. Check the training logs.")
                     return
                 
                 with zipf.open(model_file) as f:
                     model = model_from_json(f.read().decode('utf-8')) if model_type == 'Prophet' else pickle.load(f)
                 
-                dates, values = {
+                forecast_func = {
                     'ARIMA': forecast_arima,
                     'Prophet': forecast_prophet,
                     'NeuralProphet': forecast_neuralprophet,
                     'Exponential Smoothing': forecast_expsmooth
-                }[model_type](model, days, temp, rain)
+                }.get(model_type)
+                
+                if forecast_func is None:
+                    st.error(f"No forecast function for model type: {model_type}")
+                    return
+                
+                dates, values = forecast_func(model, days, temp, rain)
                 
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
