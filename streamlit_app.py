@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
-from neuralprophet import NeuralProphet
+from neuralprophet import NeuralProphet, set_log_level
 import pmdarima as pm
 from prophet.serialize import model_to_json, model_from_json
 import warnings
@@ -42,6 +42,11 @@ def prepare_region_data(df, region):
         freq='D'
     )
     region_df = region_df.reindex(full_date_range)
+    
+    # Interpolate missing values
+    region_df['Cases'] = region_df['Cases'].interpolate(method='time').ffill().bfill()
+    region_df['Temperature'] = region_df['Temperature'].interpolate(method='linear').ffill().bfill()
+    region_df['Rainfall'] = region_df['Rainfall'].interpolate(method='linear').ffill().bfill()
     
     return region_df[['Cases', 'Temperature', 'Rainfall']]
 
@@ -89,6 +94,9 @@ def train_prophet(data):
 
 def train_neuralprophet(data, forecast_horizon=5):
     """Train NeuralProphet with enhanced missing value handling"""
+    # Reduce logging verbosity
+    set_log_level("ERROR")
+    
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     
@@ -104,15 +112,16 @@ def train_neuralprophet(data, forecast_horizon=5):
     model = NeuralProphet(
         n_forecasts=forecast_horizon,
         n_lags=14,
-        yearly_seasonality=False,
+        yearly_seasonality=True,
         weekly_seasonality=False,
         daily_seasonality=False,
         epochs=50,
         batch_size=16,
         learning_rate=0.01,
-        trend_reg=0,
+        trend_reg=0.5,  # Added regularization
         impute_missing=True,
         drop_missing=True,
+        normalize="soft",  # Better for variables with different scales
         trainer_config={
             'accelerator': 'cpu',
             'max_epochs': 50,
@@ -120,8 +129,9 @@ def train_neuralprophet(data, forecast_horizon=5):
         }
     )
     
-    model.add_future_regressor('Temperature')
-    model.add_future_regressor('Rainfall')
+    # Add regressors with proper normalization
+    model.add_future_regressor('Temperature', normalize=True)
+    model.add_future_regressor('Rainfall', normalize=True)
     
     with st.spinner(f"Training NeuralProphet for {forecast_horizon} forecasts..."):
         try:
@@ -168,7 +178,7 @@ def train_all_models():
             status_text.text(f"Training models for {region} ({i}/{total_regions})")
             data = prepare_region_data(df, region)
             
-            # Data quality check - now as a section instead of expander
+            # Data quality check
             st.subheader(f"Data Quality Report for {region}")
             if not check_data_quality(data, region):
                 st.warning(f"Skipping {region} due to data quality issues")
@@ -230,23 +240,25 @@ def forecast_prophet(model, days, temp, rain):
 def forecast_neuralprophet(model, days, temp, rain):
     """Generate NeuralProphet forecast with proper future regressors"""
     try:
-        future = pd.DataFrame({
-            'ds': pd.date_range(start=datetime.today(), periods=days)
-        })
-        future['Temperature'] = temp
-        future['Rainfall'] = rain
+        # Create future dataframe with proper regressors
+        future = model.make_future_dataframe(
+            periods=days,
+            regressors_df=pd.DataFrame({
+                'ds': pd.date_range(start=datetime.today(), periods=days),
+                'Temperature': [temp] * days,
+                'Rainfall': [rain] * days
+            })
+        )
         
         forecast = model.predict(future)
         
-        forecast_dates = []
-        forecast_values = []
+        # Handle potential missing forecasts
+        forecast = forecast.ffill().bfill()
         
-        for i in range(days):
-            if i < len(forecast):
-                forecast_dates.append(forecast.iloc[i]['ds'])
-                forecast_values.append(forecast.iloc[i]['yhat1'])
+        forecast_dates = forecast['ds'].values[-days:]
+        forecast_values = forecast['yhat1'].values[-days:]
         
-        return np.array(forecast_dates), np.array(forecast_values)
+        return forecast_dates, forecast_values
         
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
@@ -262,7 +274,7 @@ def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
     st.title("🦟 Malaria Cases Forecasting with Environmental Factors 🦟")
     
-    # File Upload Section (standalone expander)
+    # File Upload Section
     st.header("Data Management")
     with st.expander("📤 Update Data File", expanded=False):
         st.write("Upload updated malaria data (CSV format with Date, Region, Cases, Temperature, Rainfall columns)")
@@ -280,13 +292,13 @@ def main():
             except Exception as e:
                 st.error(f"Error processing file: {str(e)}")
     
-    # Model Training Section (standalone expander)
+    # Model Training Section
     st.header("Model Training")
     with st.expander("⚙️ Model Training Options", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
-    # Forecasting Interface (no expander)
+    # Forecasting Interface
     st.header("Generate Forecasts")
     col1, col2 = st.columns(2)
     
