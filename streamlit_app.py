@@ -93,36 +93,35 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data, forecast_horizon=5):
-    """Train NeuralProphet with enhanced missing value handling"""
+    """Train NeuralProphet with proper column naming and data handling"""
     # Reduce logging verbosity
     set_log_level("ERROR")
     
-    # Prepare dataframe with required column names
-    df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
+    # Prepare dataframe with EXACTLY required column names
+    df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
     df = df.rename(columns={
-        'Date': 'ds', 
-        'Cases': 'y',
+        'Date': 'ds',  # MUST be 'ds' for dates
+        'Cases': 'y',   # MUST be 'y' for values
         'Temperature': 'Temperature',
         'Rainfall': 'Rainfall'
     })
     
-    # Ensure we have the required columns
-    if 'ds' not in df.columns or 'y' not in df.columns:
-        st.error("Dataframe must contain 'ds' (dates) and 'y' (values) columns")
-        st.error(f"Current columns: {df.columns.tolist()}")
+    # Verify required columns exist
+    if not {'ds', 'y'}.issubset(df.columns):
+        missing = {'ds', 'y'} - set(df.columns)
+        st.error(f"Missing required columns: {missing}")
+        st.error(f"Available columns: {df.columns.tolist()}")
         return None
     
     # Enhanced missing value handling
     df = df.interpolate(method='time').ffill().bfill()
     
-    # Verify no missing values remain
+    # Final check for missing values
     if df.isnull().values.any():
-        st.warning("Warning: Some missing values remain after imputation")
-        st.write("Missing values per column:")
-        st.write(df.isnull().sum())
-        df = df.dropna()  # Final fallback
-        
-    # NeuralProphet configuration
+        st.warning(f"Missing values after imputation: {df.isnull().sum().to_dict()}")
+        df = df.dropna()
+    
+    # Configure NeuralProphet with robust settings
     model = NeuralProphet(
         n_forecasts=forecast_horizon,
         n_lags=14,
@@ -135,32 +134,26 @@ def train_neuralprophet(data, forecast_horizon=5):
         trend_reg=0.5,
         impute_missing=True,
         drop_missing=True,
-        normalize="soft",
-        trainer_config={
-            'accelerator': 'cpu',
-            'max_epochs': 50,
-            'enable_progress_bar': True
-        }
+        normalize="soft"
     )
     
-    # Add regressors
+    # Add regressors with proper normalization
     model.add_future_regressor('Temperature', normalize=True)
     model.add_future_regressor('Rainfall', normalize=True)
     
     with st.spinner(f"Training NeuralProphet for {forecast_horizon} forecasts..."):
         try:
-            # Print debug info before training
-            st.write("Training data sample:")
+            # Debug output
+            st.write("Sample training data (first 5 rows):")
             st.write(df.head())
-            st.write(f"Data shape: {df.shape}")
             
+            # Train model
             metrics = model.fit(df, freq='D', progress='bar')
             return model
         except Exception as e:
-            st.error(f"Training error: {str(e)}")
-            st.error(f"Data columns: {df.columns.tolist()}")
-            st.error(f"Missing values:\n{df.isnull().sum()}")
-            st.error(f"First 5 rows:\n{df.head()}")
+            st.error(f"NeuralProphet training failed: {str(e)}")
+            st.error("Data sample that caused the error:")
+            st.write(df.head())
             return None
 
 def train_exponential_smoothing(data):
