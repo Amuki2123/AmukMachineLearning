@@ -158,88 +158,146 @@ def train_exponential_smoothing(data):
 
 # --- Model Training Interface ---
 def train_all_models():
-    """Train and save all models for all regions with robust error handling"""
+    """Train and save all models for all regions with enhanced error handling"""
     try:
         df = load_data()
+        st.write("Data loaded successfully. Sample data:")
+        st.write(df.head())
     except Exception as e:
         st.error(f"Failed to load data: {str(e)}")
-        return
+        return None
     
     models = {}
     progress_bar = st.progress(0)
     status_text = st.empty()
+    training_errors = []
     
     try:
         for i, region in enumerate(REGIONS, 1):
-            status_text.text(f"Training models for {region} ({i}/{len(REGIONS)})")
-            data = prepare_region_data(df, region)
+            region_status = st.empty()
+            region_status.text(f"Processing {region}...")
             
-            # Data quality check
-            st.subheader(f"Data Quality Report for {region}")
-            if not check_data_quality(data, region):
-                st.warning(f"Skipping {region} due to data quality issues")
+            try:
+                # Prepare data with validation
+                data = prepare_region_data(df, region)
+                st.write(f"{region} data prepared. Date range: {data['ds'].min()} to {data['ds'].max()}")
+                
+                if not check_data_quality(data, region):
+                    st.warning(f"Skipping {region} due to data quality issues")
+                    continue
+
+                # --- ARIMA Training ---
+                try:
+                    region_status.text(f"Training ARIMA for {region}...")
+                    arima_model = train_arima(data)
+                    if arima_model:
+                        models[f"{region.lower()}_arima_model.pkl"] = arima_model
+                        st.success(f"ARIMA trained for {region}")
+                    else:
+                        st.warning(f"ARIMA training failed for {region}")
+                except Exception as e:
+                    training_errors.append(f"ARIMA {region}: {str(e)}")
+                    st.error(f"ARIMA training failed for {region}: {str(e)}")
+
+                # --- Prophet Training ---
+                try:
+                    region_status.text(f"Training Prophet for {region}...")
+                    prophet_model = train_prophet(data)
+                    if prophet_model:
+                        models[f"{region.lower()}_prophet_model.json"] = prophet_model
+                        st.success(f"Prophet trained for {region}")
+                    else:
+                        st.warning(f"Prophet training failed for {region}")
+                except Exception as e:
+                    training_errors.append(f"Prophet {region}: {str(e)}")
+                    st.error(f"Prophet training failed for {region}: {str(e)}")
+
+                # --- NeuralProphet Training ---
+                try:
+                    region_status.text(f"Training NeuralProphet for {region}...")
+                    neural_model = train_neuralprophet(data)
+                    if neural_model:
+                        models[f"{region.lower()}_neuralprophet_model.pkl"] = neural_model
+                        st.success(f"NeuralProphet trained for {region}")
+                    else:
+                        st.warning(f"NeuralProphet training failed for {region}")
+                except Exception as e:
+                    training_errors.append(f"NeuralProphet {region}: {str(e)}")
+                    st.error(f"NeuralProphet training failed for {region}: {str(e)}")
+
+                # --- Exponential Smoothing Training ---
+                try:
+                    region_status.text(f"Training Exponential Smoothing for {region}...")
+                    exp_model = train_exponential_smoothing(data)
+                    if exp_model:
+                        models[f"{region.lower()}_expsmooth_model.pkl"] = exp_model
+                        st.success(f"Exponential Smoothing trained for {region}")
+                    else:
+                        st.warning(f"Exponential Smoothing training failed for {region}")
+                except Exception as e:
+                    training_errors.append(f"ExpSmooth {region}: {str(e)}")
+                    st.error(f"Exponential Smoothing training failed for {region}: {str(e)}")
+
+                progress_bar.progress(int(i/len(REGIONS)*100)
+                
+            except Exception as e:
+                training_errors.append(f"{region} processing: {str(e)}")
+                st.error(f"Failed to process {region}: {str(e)}")
                 continue
-            
-            # Train models with individual error handling
-            try:
-                models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            except Exception as e:
-                st.error(f"Failed to train ARIMA for {region}: {str(e)}")
-            
-            try:
-                models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
-            except Exception as e:
-                st.error(f"Failed to train Prophet for {region}: {str(e)}")
-            
-            try:
-                neural_model = train_neuralprophet(data)
-                if neural_model:
-                    models[f"{region.lower()}_neuralprophet_model.pkl"] = neural_model
-                else:
-                    st.warning(f"NeuralProphet training failed for {region}")
-            except Exception as e:
-                st.error(f"NeuralProphet training error for {region}: {str(e)}")
-            
-            try:
-                models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
-            except Exception as e:
-                st.error(f"Failed to train Exponential Smoothing for {region}: {str(e)}")
-            
-            progress_bar.progress(int(i/len(REGIONS)*100))
         
-        # Save only successfully trained models
+        # Save models if any were trained successfully
         if models:
-            with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-                for name, model in models.items():
-                    try:
-                        if name.endswith('.pkl'):
-                            with zipf.open(name, 'w') as f:
-                                pickle.dump(model, f)
-                        elif name.endswith('.json'):
-                            with zipf.open(name, 'w') as f:
-                                f.write(model_to_json(model).encode('utf-8'))
-                    except Exception as e:
-                        st.error(f"Failed to save {name}: {str(e)}")
-                        continue
-            
-            # Verify saved models
-            with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                saved_models = set(zipf.namelist())
-                for region in REGIONS:
-                    if f"{region.lower()}_neuralprophet_model.pkl" not in saved_models:
-                        st.warning(f"NeuralProphet model for {region} was not saved")
-            
-            status_text.success(f"Saved {len(models)} models successfully!")
-            st.balloons()
+            try:
+                with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
+                    for name, model in models.items():
+                        try:
+                            if name.endswith('.pkl'):
+                                with zipf.open(name, 'w') as f:
+                                    pickle.dump(model, f)
+                            elif name.endswith('.json'):
+                                with zipf.open(name, 'w') as f:
+                                    f.write(model_to_json(model).encode('utf-8'))
+                            st.success(f"Saved {name}")
+                        except Exception as e:
+                            training_errors.append(f"Save {name}: {str(e)}")
+                            st.error(f"Failed to save {name}: {str(e)}")
+                            continue
+                
+                # Verify saved models
+                with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
+                    saved_models = zipf.namelist()
+                    st.success(f"Models saved: {', '.join(saved_models)}")
+                
+                status_text.success(f"Successfully trained and saved {len(models)} models!")
+                st.balloons()
+                
+                # Show training summary
+                with st.expander("Training Summary"):
+                    st.write("Successfully trained models:")
+                    st.write(list(models.keys()))
+                    
+                    if training_errors:
+                        st.write("Training errors encountered:")
+                        for error in training_errors:
+                            st.write(f"- {error}")
+                
+                return True
+            except Exception as e:
+                st.error(f"Failed to save models: {str(e)}")
+                if os.path.exists(MODEL_ZIP):
+                    os.remove(MODEL_ZIP)
+                return False
         else:
-            status_text.error("No models were trained successfully")
-            if os.path.exists(MODEL_ZIP):
-                os.remove(MODEL_ZIP)
+            status_text.error("No models were trained successfully for any region")
+            if training_errors:
+                st.error("Training errors encountered:")
+                for error in training_errors:
+                    st.write(f"- {error}")
+            return False
     
     except Exception as e:
-        st.error(f"Model training failed: {str(e)}")
-        if os.path.exists(MODEL_ZIP):
-            os.remove(MODEL_ZIP)
+        st.error(f"Unexpected error during training: {str(e)}")
+        return False
     finally:
         progress_bar.empty()
 
