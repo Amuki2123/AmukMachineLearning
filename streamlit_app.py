@@ -1,5 +1,6 @@
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Add this line
+import os
 import zipfile
 import pickle
 import json
@@ -181,7 +182,7 @@ def train_all_models():
             
             models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
             
-            progress_bar.progress(int(i/len(REGIONS)*100)
+            progress_bar.progress(int(i/len(REGIONS)*100))
         
         # Save models to zip file
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
