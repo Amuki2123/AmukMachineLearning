@@ -34,23 +34,29 @@ def load_data():
     return df
 
 def prepare_region_data(df, region):
-    """Prepare dataset for a specific region with proper column names"""
+    """Prepare dataset for a specific region with proper datetime handling"""
+    # Filter and rename columns
     region_df = df[df['Region'] == region][['Date', 'Cases', 'Temperature', 'Rainfall']].copy()
     region_df = region_df.rename(columns={'Date': 'ds', 'Cases': 'y'})
     
+    # Convert to datetime and set as index
+    region_df['ds'] = pd.to_datetime(region_df['ds'])
+    region_df = region_df.set_index('ds').sort_index()
+    
     # Ensure continuous dates
     full_date_range = pd.date_range(
-        start=region_df['ds'].min(),
-        end=region_df['ds'].max(),
+        start=region_df.index.min(),
+        end=region_df.index.max(),
         freq='D'
     )
-    region_df = region_df.set_index('ds').reindex(full_date_range).reset_index()
+    region_df = region_df.reindex(full_date_range)
     
-    # Handle missing values
+    # Handle missing values with time-based interpolation
     for col in ['y', 'Temperature', 'Rainfall']:
-        region_df[col] = region_df[col].interpolate(method='time').ffill().bfill()
+        if region_df[col].isnull().any():
+            region_df[col] = region_df[col].interpolate(method='time').ffill().bfill()
     
-    return region_df
+    return region_df.reset_index()  # Return with ds as a column
 
 def check_data_quality(df, region):
     """Verify data quality before training"""
@@ -96,17 +102,22 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data, forecast_horizon=5):
-    """Train NeuralProphet with strict column requirements"""
+    """Train NeuralProphet with proper datetime handling"""
     set_log_level("ERROR")
     
+    # Ensure proper datetime format
+    data['ds'] = pd.to_datetime(data['ds'])
+    
     # Verify required columns
-    if not {'ds', 'y'}.issubset(data.columns):
-        st.error("Dataframe must contain 'ds' and 'y' columns")
-        st.error(f"Current columns: {data.columns.tolist()}")
+    REQUIRED_COLS = {'ds', 'y'}
+    if not REQUIRED_COLS.issubset(data.columns):
+        missing = REQUIRED_COLS - set(data.columns)
+        st.error(f"Missing required columns: {missing}")
+        st.error(f"Current columns: {list(data.columns)}")
         return None
     
     # Final cleaning
-    df = data.copy().dropna(subset=['ds', 'y'])
+    df = data.dropna(subset=['ds', 'y']).copy()
     
     # Model configuration
     model = NeuralProphet(
@@ -131,6 +142,8 @@ def train_neuralprophet(data, forecast_horizon=5):
             return model
         except Exception as e:
             st.error(f"Training failed: {str(e)}")
+            st.error("Problematic data sample:")
+            st.write(df.head())
             return None
 
 def train_exponential_smoothing(data):
