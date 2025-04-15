@@ -18,24 +18,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # --- Constants ---
-import os
-import zipfile
-import pickle
-import json
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from prophet import Prophet
-from neuralprophet import NeuralProphet, set_log_level
-import pmdarima as pm
-from prophet.serialize import model_to_json, model_from_json
-import warnings
-warnings.filterwarnings("ignore")
-
-# --- Constants ---
 DATA_FILE = "malaria_data_upd.csv"
 MODEL_ZIP = "Malaria_Forecasting.zip"
 REGIONS = ["Juba", "Yei", "Wau"]
