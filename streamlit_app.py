@@ -198,8 +198,12 @@ def train_all_models():
                     with zipf.open(name, 'w') as f:
                         f.write(model_to_json(model).encode('utf-8'))
         
-        status_text.success("All models trained successfully!")
-        st.balloons()
+        progress_bar.progress(100)
+        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
+            status_text.success("All models trained successfully!")
+            st.balloons()
+        else:
+            status_text.warning("Models trained with some NeuralProphet failures")
     
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
