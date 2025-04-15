@@ -524,7 +524,7 @@ def main():
                     df.to_csv(DATA_FILE, index=False)
                     st.success("File uploaded successfully!")
                     st.cache_data.clear()
-                    st.experimental_rerun()  # Refresh to use new data
+                    st.rerun()  # Refresh to use new data
                 else:
                     st.error(f"Missing required columns: {set(required_cols)-set(df.columns)}")
             except Exception as e:
