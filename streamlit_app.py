@@ -35,7 +35,7 @@ def load_data():
 def prepare_region_data(df, region):
     """Prepare dataset for a specific region"""
     region_df = df[df['Region'] == region].set_index('Date').sort_index()
-    return region_df[['Cases', 'Temperature', 'Rainfall']]
+    return region_df[['Cases', 'Temperature', 'Rainfall']].dropna()
 
 # --- Model Training Functions ---
 def train_arima(data):
@@ -58,39 +58,43 @@ def train_prophet(data):
     return model
 
 def train_neuralprophet(data):
-    """Train NeuralProphet with stability fixes"""
+    """Train NeuralProphet with proper multi-step forecasting configuration"""
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
-    # NeuralProphet configuration with reduced complexity
+    # Configure for multi-step forecasting
     model = NeuralProphet(
-        n_forecasts=1,
-        n_lags=0,  # No autoregression
-        yearly_seasonality=False,
-        weekly_seasonality=False,
+        n_forecasts=30,  # Set to maximum forecast horizon
+        n_lags=30,       # Include some autoregression
+        yearly_seasonality=True,
+        weekly_seasonality=True,
         daily_seasonality=False,
-        epochs=50,  # Reduced epochs for stability
-        batch_size=16,
-        learning_rate=0.01,
-        trend_reg=0,
+        epochs=100,      # Increased epochs for better learning
+        batch_size=32,
+        learning_rate=0.1,
+        trend_reg=1,     # Regularization to prevent overfitting
+        num_hidden_layers=2,
+        d_hidden=32,
         trainer_config={
             'accelerator': 'cpu',
-            'max_epochs': 50,
+            'max_epochs': 100,
             'enable_progress_bar': True
         }
     )
     
-    model.add_future_regressor('Temperature')
-    model.add_future_regressor('Rainfall')
+    # Add regressors with proper normalization
+    model.add_future_regressor('Temperature', normalize=True)
+    model.add_future_regressor('Rainfall', normalize=True)
     
-    # Train with progress feedback
-    with st.spinner("Training NeuralProphet (this may take a minute)..."):
+    # Train with validation split
+    with st.spinner("Training NeuralProphet (this may take a few minutes)..."):
         try:
-            metrics = model.fit(df, freq='D', progress='bar')
+            df_train, df_test = model.split_df(df, freq='D', valid_p=0.2)
+            metrics = model.fit(df_train, validation_df=df_test, freq='D', progress='bar')
+            return model
         except Exception as e:
             st.error(f"Training error: {str(e)}")
             return None
-    return model
 
 def train_exponential_smoothing(data):
     """Train Exponential Smoothing with robust seasonal handling"""
@@ -181,21 +185,30 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting with updated API"""
+    """Robust NeuralProphet forecasting with proper future regressor handling"""
     try:
-        # Create future dates dataframe
-        future = pd.DataFrame({
-            'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
-        })
+        # Create future dataframe with proper structure
+        future = model.make_future_dataframe(
+            df=pd.DataFrame({'ds': [datetime.today()]}),  # Dummy input
+            periods=days,
+            n_historic=0  # No historic data needed for pure future forecast
+        )
         
-        # Add required columns
-        future['y'] = np.nan  # Dummy target column
-        future['Temperature'] = temp
-        future['Rainfall'] = rain
+        # Add future regressors - must match training dimensions
+        future['Temperature'] = np.array([temp] * days)
+        future['Rainfall'] = np.array([rain] * days)
         
         # Generate forecast
         forecast = model.predict(future)
-        return forecast['ds'].values, forecast['yhat1'].values
+        
+        # Extract the forecast values
+        if days == 1:
+            forecast_values = forecast['yhat1'].values
+        else:
+            # For multi-step forecasts, we need to combine the individual step forecasts
+            forecast_values = np.array([forecast[f'yhat{i+1}'].values[0] for i in range(days)])
+        
+        return future['ds'].values, forecast_values
 
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
@@ -209,7 +222,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟Malaria Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟 Malaria Forecasting with Environmental Factors 🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -229,7 +242,7 @@ def main():
                 st.error(f"Error processing file: {str(e)}")
     
     # Model Training Section
-    with st.expander("⚙️⚙️⚙️ Model Training ⚙️⚙️⚙️", expanded=False):
+    with st.expander("⚙️ Model Training ⚙️", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
@@ -244,7 +257,7 @@ def main():
     with col2:
         temp = st.slider("Temperature (°C)", 15.0, 40.0, 25.0, 0.5)
         rain = st.slider("Rainfall (mm)", 0.0, 300.0, 50.0, 5.0)
-        days = st.slider("Forecast Days", 7, 365, 30, 1)
+        days = st.slider("Forecast Days", 1, 365, 30, 1)
     
     if st.button("Generate Forecast", type="primary"):
         if not os.path.exists(MODEL_ZIP):
@@ -295,7 +308,7 @@ def main():
                 
                 # Visualization
                 fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
+                ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-', label='Forecast')
                 ax.set_title(
                     f"{region} {model_type} Forecast\n"
                     f"Temperature: {temp}°C, Rainfall: {rain}mm",
@@ -304,6 +317,7 @@ def main():
                 ax.set_xlabel("Date")
                 ax.set_ylabel("Cases")
                 ax.grid(True, alpha=0.3)
+                ax.legend()
                 st.pyplot(fig)
                 
                 # Data Export
