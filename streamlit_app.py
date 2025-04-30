@@ -1,11 +1,4 @@
-import sys
-import torch
-if 'streamlit' in sys.modules:
-    if hasattr(torch, 'classes') and hasattr(sys.modules.get('torch.classes'), '__path__'):
-        sys.modules['torch.classes'].__path__ = []
 
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
 # --- Imports ---
 import os
 import zipfile
