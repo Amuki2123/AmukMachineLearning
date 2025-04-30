@@ -1,13 +1,13 @@
-streamlit>=1.22.0
-pandas>=1.5.0
-numpy>=1.23.0
-matplotlib>=3.6.0
-statsmodels>=0.13.0
-prophet>=1.1.0
-neuralprophet>=0.4.0
-pmdarima>=2.0.0
-torch==1.13.1
-pytorch-lightning==1.9.4
-tensorflow==2.11.0
-keras==2.11.0
+streamlit
+pandas
+numpy
+matplotlib
+statsmodels
+prophet
+neuralprophet
+pmdarima
+torch
+pytorch-lightning
+tensorflow
+keras
 --find-links https://download.pytorch.org/whl/torch_stable.html
