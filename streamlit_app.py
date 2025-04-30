@@ -1,4 +1,28 @@
+ 1. Critical fixes first
+import sys
+import torch
+if 'streamlit' in sys.modules:
+    if hasattr(torch, 'classes') and hasattr(sys.modules.get('torch.classes'), '__path__'):
+        sys.modules['torch.classes'].__path__ = []
 
+# 2. Configure Matplotlib
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+from matplotlib import pyplot as plt
+
+# 3. Handle Plotly
+try:
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
+# 4. Start font cache building in background
+import threading
+def build_font_cache():
+    import matplotlib.font_manager
+    matplotlib.font_manager._rebuild()
+threading.Thread(target=build_font_cache, daemon=True).start()
 # --- Imports ---
 import os
 import zipfile
