@@ -6,8 +6,3 @@ statsmodels
 prophet
 neuralprophet
 pmdarima
-streamlit torch
-pytorch-lightning
-tensorflow
-keras
---find-links https://download.pytorch.org/whl/torch_stable.html
