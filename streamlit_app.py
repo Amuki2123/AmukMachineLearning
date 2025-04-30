@@ -1,3 +1,4 @@
+# --- Imports ---
 import os
 import zipfile
 import pickle
@@ -208,7 +209,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟 Malaria Cases Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟🦟Malaria Forecasting with Environmental Factors🦟🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -228,7 +229,7 @@ def main():
                 st.error(f"Error processing file: {str(e)}")
     
     # Model Training Section
-    with st.expander("⚙️ Model Training", expanded=False):
+    with st.expander("⚙️⚙️⚙️ Model Training ⚙️⚙️⚙️", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
