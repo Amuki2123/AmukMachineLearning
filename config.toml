@@ -2,7 +2,6 @@
 port = 8501
 enableCORS = true
 enableXsrfProtection = false
-allowedOrigins = "*"
 
 [browser]
 serverAddress = "0.0.0.0"
