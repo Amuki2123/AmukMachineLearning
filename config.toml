@@ -1,11 +1,9 @@
 [server]
 port = 8501
-enableCORS = true
-enableXsrfProtection = false
+fileWatcherType = "none"
 
 [browser]
 serverAddress = "0.0.0.0"
-serverPort = 8501
 
 [theme]
 primaryColor="#F63366"
