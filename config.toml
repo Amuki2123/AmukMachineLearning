@@ -1,6 +1,8 @@
 [server]
 port = 8501
 fileWatcherType = "none"
+enableCORS = true
+enableXsrfProtection = false
 
 [browser]
 serverAddress = "0.0.0.0"
