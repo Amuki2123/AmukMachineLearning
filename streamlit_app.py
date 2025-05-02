@@ -7,8 +7,11 @@ if 'streamlit' in sys.modules:
 
 # 2. Configure Matplotlib
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
-from matplotlib import pyplot as plt
+matplotlib.use('Agg')  # Avoid GUI backend issues
+import matplotlib.pyplot as plt
+
+# Force font loading (optional)
+plt.rcParams["font.family"] = "sans-serif"
 
 # 3. Handle Plotly
 try:
@@ -17,12 +20,6 @@ try:
 except ImportError:
     PLOTLY_AVAILABLE = False
 
-# 4. Start font cache building in background
-import threading
-def build_font_cache():
-    import matplotlib.font_manager
-    matplotlib.font_manager._rebuild()
-threading.Thread(target=build_font_cache, daemon=True).start()
 # --- Imports ---
 import os
 import zipfile
