@@ -1,25 +1,3 @@
- # 1. Critical fixes first
-import sys
-import torch
-if 'streamlit' in sys.modules:
-    if hasattr(torch, 'classes') and hasattr(sys.modules.get('torch.classes'), '__path__'):
-        sys.modules['torch.classes'].__path__ = []
-
-# 2. Configure Matplotlib
-import matplotlib
-matplotlib.use('Agg')  # Avoid GUI backend issues
-import matplotlib.pyplot as plt
-
-# Force font loading (optional)
-plt.rcParams["font.family"] = "sans-serif"
-
-# 3. Handle Plotly
-try:
-    import plotly.express as px
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
-
 # --- Imports ---
 import os
 import zipfile
@@ -39,17 +17,32 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # --- Constants ---
-DATA_FILE = "malaria_data_upd.csv"
+DATA_FILE = "data/malaria_data_upd.csv"  # Changed to data directory
 MODEL_ZIP = "Malaria_Forecasting.zip"
 REGIONS = ["Juba", "Yei", "Wau"]
 MODEL_TYPES = ["ARIMA", "Prophet", "NeuralProphet", "Exponential Smoothing"]
+
+# Create necessary directories if they don't exist
+os.makedirs("data", exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 # --- Data Preparation ---
 @st.cache_data
 def load_data():
     """Load and preprocess malaria data with environmental factors"""
     if not os.path.exists(DATA_FILE):
-        raise FileNotFoundError(f"The data file '{DATA_FILE}' is missing. Please upload it first.")
+        # If no data file exists, create a minimal example
+        example_data = {
+            'Date': pd.date_range(start='2020-01-01', periods=365).strftime('%Y-%m-%d'),
+            'Region': ['Juba']*365 + ['Yei']*365 + ['Wau']*365,
+            'Cases': np.random.poisson(50, 365*3),
+            'Temperature': np.random.normal(25, 5, 365*3),
+            'Rainfall': np.random.gamma(2, 25, 365*3)
+        }
+        df = pd.DataFrame(example_data)
+        df.to_csv(DATA_FILE, index=False)
+        st.warning("No data file found. Created example data. Please upload real data.")
+    
     df = pd.read_csv(DATA_FILE)
     df['Date'] = pd.to_datetime(df['Date'])
     return df
@@ -151,33 +144,30 @@ def train_all_models():
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
-            models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            # Train and save each model individually
+            arima_model = train_arima(data)
+            with open(f"{MODEL_DIR}/{region.lower()}_arima_model.pkl", 'wb') as f:
+                pickle.dump(arima_model, f)
+            
+            prophet_model = train_prophet(data)
+            with open(f"{MODEL_DIR}/{region.lower()}_prophet_model.json", 'w') as f:
+                f.write(model_to_json(prophet_model))
             
             # Handle NeuralProphet training carefully
             neuralprophet_model = train_neuralprophet(data)
             if neuralprophet_model is not None:
-                models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
+                with open(f"{MODEL_DIR}/{region.lower()}_neuralprophet_model.pkl", 'wb') as f:
+                    pickle.dump(neuralprophet_model, f)
             else:
                 st.warning(f"NeuralProphet failed for {region}, skipping...")
             
-            models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
-        
-        with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
-            for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
+            expsmooth_model = train_exponential_smoothing(data)
+            with open(f"{MODEL_DIR}/{region.lower()}_expsmooth_model.pkl", 'wb') as f:
+                pickle.dump(expsmooth_model, f)
         
         progress_bar.progress(100)
-        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
-            status_text.success("All models trained successfully!")
-            st.balloons()
-        else:
-            status_text.warning("Models trained with some NeuralProphet failures")
+        status_text.success("All models trained and saved successfully!")
+        st.balloons()
         
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
@@ -231,7 +221,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟Malaria Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟 Malaria Forecasting with Environmental Factors 🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
@@ -251,7 +241,7 @@ def main():
                 st.error(f"Error processing file: {str(e)}")
     
     # Model Training Section
-    with st.expander("⚙️⚙️⚙️ Model Training ⚙️⚙️⚙️", expanded=False):
+    with st.expander("⚙️ Model Training ⚙️", expanded=False):
         if st.button("Train All Models"):
             train_all_models()
     
@@ -269,31 +259,27 @@ def main():
         days = st.slider("Forecast Days", 7, 365, 30, 1)
     
     if st.button("Generate Forecast", type="primary"):
-        if not os.path.exists(MODEL_ZIP):
-            st.error("Please train models first!")
+        # Determine the model filename
+        if model_type == "Exponential Smoothing":
+            model_file = f"{MODEL_DIR}/{region.lower()}_expsmooth_model.pkl"
+        elif model_type == "Prophet":
+            model_file = f"{MODEL_DIR}/{region.lower()}_prophet_model.json"
+        else:
+            model_file = f"{MODEL_DIR}/{region.lower()}_{model_type.lower()}_model.pkl"
+        
+        # Check if model exists
+        if not os.path.exists(model_file):
+            st.error(f"Please train the {model_type} model first!")
             return
         
         try:
-            with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                # Correct model filename pattern
-                if model_type == "Exponential Smoothing":
-                    model_file = f"{region.lower()}_expsmooth_model.pkl"
-                elif model_type == "Prophet":
-                    model_file = f"{region.lower()}_prophet_model.json"
-                else:
-                    model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
-                
-                # Skip if NeuralProphet failed during training
-                if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
-                    st.error("NeuralProphet model not available for this region (training failed)")
-                    return
-                
-                if model_type == "Prophet":
-                    with zipf.open(model_file) as f:
-                        model = model_from_json(f.read().decode('utf-8'))
-                else:
-                    with zipf.open(model_file) as f:
-                        model = pickle.load(f)
+            # Load the appropriate model
+            if model_type == "Prophet":
+                with open(model_file, 'r') as f:
+                    model = model_from_json(f.read())
+            else:
+                with open(model_file, 'rb') as f:
+                    model = pickle.load(f)
             
             st.success(f"{model_type} model loaded for {region}!")
             
