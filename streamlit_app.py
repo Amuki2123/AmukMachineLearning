@@ -224,7 +224,7 @@ def forecast_expsmooth(model, days, temp, rain):
 # --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Malaria Forecasting", layout="wide")
-    st.title("🦟🦟Malaria Forecasting with Environmental Factors🦟🦟")
+    st.title("🦟Malaria Forecasting with Environmental Factors🦟")
     
     # File Upload Section
     with st.expander("📤 Update Data File", expanded=False):
