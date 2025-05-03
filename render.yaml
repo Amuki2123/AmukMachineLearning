@@ -1,7 +1,7 @@
 services:
   - type: web
     name: malaria-forecast-pro
-    plan: starter  # Paid tier (1GB RAM)
+    plan: free  # free tier (1GB RAM)
     env: python
     pythonVersion: "3.11"
     buildCommand: |
