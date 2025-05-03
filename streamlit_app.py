@@ -1,5 +1,12 @@
 # --- Imports ---
+# Standard library imports
 import os
+
+# Third-party imports
+import torch
+
+# Set random seed for reproducibility
+torch.manual_seed(42)
 import zipfile
 import pickle
 import json
