@@ -1,12 +1,20 @@
 # --- Imports ---
-# Standard library imports
+# At the VERY TOP of your script (before any other imports)
 import os
+os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
 
-# Third-party imports
-import torch
+# Then standard imports
+import streamlit as st
 
-# Set random seed for reproducibility
-torch.manual_seed(42)
+# PyTorch imports with error handling
+try:
+    import torch
+    torch.manual_seed(42)
+except RuntimeError as e:
+    if "Tried to instantiate class '__path__._path'" in str(e):
+        pass
+    else:
+        raise
 import zipfile
 import pickle
 import json
