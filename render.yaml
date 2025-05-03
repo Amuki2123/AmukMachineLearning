@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: malaria-forecast-pro
+    plan: starter  # Paid tier (1GB RAM)
+    env: python
+    pythonVersion: "3.11"
+    buildCommand: |
+      pip install -r requirements.txt
+      mkdir -p .streamlit
+      echo "[server]" > .streamlit/config.toml
+      echo "headless = true" >> .streamlit/config.toml
+      echo "maxUploadSize = 500" >> .streamlit/config.toml  # Allow larger file uploads
+    startCommand: streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0
+    envVars:
+      - key: STREAMLIT_SERVER_ENABLE_FILE_WATCHER
+        value: "false"
+      # Reference secrets set in Render's dashboard:
+      - key: API_KEY
+        sync: false
