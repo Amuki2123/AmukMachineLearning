@@ -88,10 +88,7 @@ def train_neuralprophet(data):
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
-        trainer_config={
-            'max_epochs': 50,
-            'enable_progress_bar': True
-        }
+        
     )
     
     model.add_future_regressor('Temperature')
