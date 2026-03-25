@@ -2,7 +2,7 @@
 # At the VERY TOP of your script (before any other imports)
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
-os.environ["PROPHET_BACKEND"] = "pystan"          # <-- Explicitly use PyStan
+os.environ["PROPHET_BACKEND"] = "cmdstanpy"          # <-- Explicitly use PyStan
 import streamlit as st
 
 # PyTorch imports with error handling
