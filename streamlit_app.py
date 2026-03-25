@@ -1,7 +1,7 @@
 # --- Imports ---
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
-os.environ["PROPHET_BACKEND"] = "cmdstanpy"          # ensure cmdstanpy is used
+os.environ["PROPHET_BACKEND"] = "cmdstanpy"          # Use cmdstanpy backend
 
 import streamlit as st
 
@@ -60,7 +60,7 @@ def train_arima(data):
     )
 
 def train_prophet(data):
-    """Train Prophet model with regressors (uses cmdstanpy backend)"""
+    """Train Prophet model with regressors (cmdstanpy backend)"""
     df = data.reset_index().rename(columns={'Date': 'ds', 'Cases': 'y'})
     model = Prophet()
     model.add_regressor('Temperature')
@@ -137,7 +137,7 @@ def train_all_models():
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
-            # All models are saved as .pkl
+            # All models are saved as .pkl (no JSON)
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
             models[f"{region.lower()}_prophet_model.pkl"] = train_prophet(data)
             
@@ -149,6 +149,7 @@ def train_all_models():
             
             models[f"{region.lower()}_expsmooth_model.pkl"] = train_exponential_smoothing(data)
         
+        # Write all models to zip (all as pickle)
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
                 with zipf.open(name, 'w') as f:
@@ -248,7 +249,7 @@ def main():
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                # Determine the correct filename
+                # All model files are .pkl
                 if model_type == "Exponential Smoothing":
                     model_file = f"{region.lower()}_expsmooth_model.pkl"
                 elif model_type == "Prophet":
@@ -262,7 +263,7 @@ def main():
                     return
                 
                 with zipf.open(model_file) as f:
-                    model = pickle.load(f)
+                    model = pickle.load(f)   # all models loaded with pickle
             
             st.success(f"{model_type} model loaded for {region}!")
             
