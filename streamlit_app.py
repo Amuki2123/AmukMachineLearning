@@ -1,11 +1,10 @@
 # --- Imports ---
-# At the VERY TOP of your script (before any other imports)
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
+os.environ["PROPHET_BACKEND"] = "cmdstanpy"          # ensure cmdstanpy is used
 
 import streamlit as st
 
-# PyTorch imports with error handling
 try:
     import torch
     torch.manual_seed(42)
@@ -25,7 +24,6 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
 from neuralprophet import NeuralProphet
 import pmdarima as pm
-from prophet.serialize import model_to_json, model_from_json
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -62,7 +60,7 @@ def train_arima(data):
     )
 
 def train_prophet(data):
-    """Train Prophet model with regressors"""
+    """Train Prophet model with regressors (uses cmdstanpy backend)"""
     df = data.reset_index().rename(columns={'Date': 'ds', 'Cases': 'y'})
     model = Prophet()
     model.add_regressor('Temperature')
@@ -75,14 +73,13 @@ def train_neuralprophet(data):
     df = data.reset_index()[['Date', 'Cases', 'Temperature', 'Rainfall']]
     df = df.rename(columns={'Date': 'ds', 'Cases': 'y'}).dropna()
     
-    # NeuralProphet configuration with reduced complexity
     model = NeuralProphet(
         n_forecasts=1,
-        n_lags=0,  # No autoregression
+        n_lags=0,
         yearly_seasonality=False,
         weekly_seasonality=False,
         daily_seasonality=False,
-        epochs=50,  # Reduced epochs for stability
+        epochs=50,
         batch_size=16,
         learning_rate=0.01,
         trend_reg=0,
@@ -92,11 +89,9 @@ def train_neuralprophet(data):
             'enable_progress_bar': True
         }        
     )
-    
     model.add_future_regressor('Temperature')
     model.add_future_regressor('Rainfall')
     
-    # Train with progress feedback
     with st.spinner("Training NeuralProphet (this may take a minute)..."):
         try:
             metrics = model.fit(df, freq='D', progress='bar')
@@ -142,10 +137,10 @@ def train_all_models():
             progress = int((i-1) / total_regions * 100)
             progress_bar.progress(progress)
             
+            # All models are saved as .pkl
             models[f"{region.lower()}_arima_model.pkl"] = train_arima(data)
-            models[f"{region.lower()}_prophet_model.json"] = train_prophet(data)
+            models[f"{region.lower()}_prophet_model.pkl"] = train_prophet(data)
             
-            # Handle NeuralProphet training carefully
             neuralprophet_model = train_neuralprophet(data)
             if neuralprophet_model is not None:
                 models[f"{region.lower()}_neuralprophet_model.pkl"] = neuralprophet_model
@@ -156,19 +151,12 @@ def train_all_models():
         
         with zipfile.ZipFile(MODEL_ZIP, 'w') as zipf:
             for name, model in models.items():
-                if name.endswith('.pkl'):
-                    with zipf.open(name, 'w') as f:
-                        pickle.dump(model, f)
-                elif name.endswith('.json'):
-                    with zipf.open(name, 'w') as f:
-                        f.write(model_to_json(model).encode('utf-8'))
+                with zipf.open(name, 'w') as f:
+                    pickle.dump(model, f)
         
         progress_bar.progress(100)
-        if all(f"{r.lower()}_neuralprophet_model.pkl" in models for r in REGIONS):
-            status_text.success("All models trained successfully!")
-            st.balloons()
-        else:
-            status_text.warning("Models trained with some NeuralProphet failures")
+        status_text.success("All models trained successfully!")
+        st.balloons()
         
     except Exception as e:
         st.error(f"Model training failed: {str(e)}")
@@ -194,22 +182,16 @@ def forecast_prophet(model, days, temp, rain):
     return forecast['ds'].iloc[-days:], forecast['yhat'].iloc[-days:]
 
 def forecast_neuralprophet(model, days, temp, rain):
-    """Robust NeuralProphet forecasting with updated API"""
+    """Robust NeuralProphet forecasting"""
     try:
-        # Create future dates dataframe
         future = pd.DataFrame({
             'ds': pd.date_range(start=datetime.today(), periods=days, freq='D')
         })
-        
-        # Add required columns
-        future['y'] = np.nan  # Dummy target column
+        future['y'] = np.nan
         future['Temperature'] = temp
         future['Rainfall'] = rain
-        
-        # Generate forecast
         forecast = model.predict(future)
         return forecast['ds'].values, forecast['yhat1'].values
-
     except Exception as e:
         st.error(f"NeuralProphet prediction error: {str(e)}")
         return pd.date_range(datetime.today(), periods=days).values, np.zeros(days)
@@ -266,25 +248,21 @@ def main():
         
         try:
             with zipfile.ZipFile(MODEL_ZIP, 'r') as zipf:
-                # Correct model filename pattern
+                # Determine the correct filename
                 if model_type == "Exponential Smoothing":
                     model_file = f"{region.lower()}_expsmooth_model.pkl"
                 elif model_type == "Prophet":
-                    model_file = f"{region.lower()}_prophet_model.json"
+                    model_file = f"{region.lower()}_prophet_model.pkl"
                 else:
                     model_file = f"{region.lower()}_{model_type.lower()}_model.pkl"
                 
-                # Skip if NeuralProphet failed during training
-                if model_type == "NeuralProphet" and f"{region.lower()}_neuralprophet_model.pkl" not in zipf.namelist():
-                    st.error("NeuralProphet model not available for this region (training failed)")
+                # Check if the model exists
+                if model_file not in zipf.namelist():
+                    st.error(f"Model file '{model_file}' not found. Please train the models first.")
                     return
                 
-                if model_type == "Prophet":
-                    with zipf.open(model_file) as f:
-                        model = model_from_json(f.read().decode('utf-8'))
-                else:
-                    with zipf.open(model_file) as f:
-                        model = pickle.load(f)
+                with zipf.open(model_file) as f:
+                    model = pickle.load(f)
             
             st.success(f"{model_type} model loaded for {region}!")
             
@@ -298,7 +276,6 @@ def main():
                 elif model_type == "Exponential Smoothing":
                     dates, values = forecast_expsmooth(model, days, temp, rain)
                 
-                # Handle different return types from models
                 forecast_df = pd.DataFrame({
                     'Date': pd.to_datetime(dates),
                     'Cases': np.round(values).astype(int),
@@ -306,7 +283,6 @@ def main():
                     'Rainfall': rain
                 })
                 
-                # Visualization
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.plot(forecast_df['Date'], forecast_df['Cases'], 'b-')
                 ax.set_title(
@@ -319,7 +295,6 @@ def main():
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 
-                # Data Export
                 csv = forecast_df.to_csv(index=False)
                 st.download_button(
                     "📥 Download Forecast",
