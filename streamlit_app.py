@@ -2,7 +2,7 @@
 # At the VERY TOP of your script (before any other imports)
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
-
+os.environ["PROPHET_BACKEND"] = "cmdstanpy"
 # Then standard imports
 import streamlit as st
 
