@@ -2,7 +2,8 @@
 # At the VERY TOP of your script (before any other imports)
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
-# Then standard imports
+# Prophet will use PyStan by default; no need to set PROPHET_BACKEND
+
 import streamlit as st
 
 # PyTorch imports with error handling
@@ -14,14 +15,13 @@ except RuntimeError as e:
         pass
     else:
         raise
+
 import zipfile
 import pickle
-import json
-import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+from datetime import datetime
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
 from neuralprophet import NeuralProphet
