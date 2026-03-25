@@ -2,8 +2,7 @@
 # At the VERY TOP of your script (before any other imports)
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
-# Prophet will use PyStan by default; no need to set PROPHET_BACKEND
-
+os.environ["PROPHET_BACKEND"] = "pystan"          # <-- Explicitly use PyStan
 import streamlit as st
 
 # PyTorch imports with error handling
