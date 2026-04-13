@@ -1,15 +1,21 @@
-cython>=0.22
-numpy<2.0.0,>=1.25.0
-setuptools>=65.0.0
-wheel>=0.38.0
+# Build tools and core dependencies
+cython==3.0.10
+numpy==1.26.4
+setuptools==69.5.1
+wheel==0.43.0
 
-streamlit>=1.33.0
-torch==2.7.0
-prophet==1.1.3
-neuralprophet==0.9.0
-pmdarima>=2.0.4
-statsmodels==0.14.0
+# Core data & visualization
 pandas==2.0.3
 matplotlib>=3.7.0,<4.0.0
 plotly==5.24.1
-cmdstanpy
+streamlit>=1.33.0
+
+# Time series & forecasting
+torch==2.7.0
+prophet==1.1.3
+neuralprophet==0.9.0
+pmdarima==2.0.4
+statsmodels==0.14.0
+
+# Stan backend for Prophet
+cmdstanpy==1.2.1
